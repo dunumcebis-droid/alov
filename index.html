@@ -808,10 +808,10 @@ var H={
 public:function(){return{settings:db.settings,branches:db.branches.filter(function(b){return b.active}).sort(function(a,b){return a.sort-b.sort}).map(function(b){return pubBranch(b)})}},
 me:function(){var c=customer(),r=mePack(c);r.csrf="demo";return r},
 pw_forgot:function(i){
-  var kind=i.kind==="staff"?"staff":"customer",email=cl(i.email,80).toLowerCase();
+  var kind=i.kind==="staff"?"staff":(i.kind==="customer"?"customer":"any"),email=cl(i.email,80).toLowerCase();
   if(kind==="customer"?!GM.test(email):!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw E("Gmail ünvanını düzgün yazın (nümunə: ad@gmail.com)");
-  var acc=kind==="staff"?db.admins.filter(function(a){return a.email===email&&a.active})[0]:db.customers.filter(function(c){return c.email===email})[0];
-  var r={ok:true};
+  var adm=db.admins.filter(function(a){return a.email===email&&a.active})[0],cus=db.customers.filter(function(c){return c.email===email})[0];
+  var acc=kind==="staff"?adm:kind==="customer"?cus:(adm||cus),r={ok:true};
   if(acc){
     var code=String(Math.floor(Math.random()*1000000));while(code.length<6)code="0"+code;
     db.resets=db.resets.filter(function(x){return !(x.kind===kind&&x.email===email)});
@@ -820,26 +820,35 @@ pw_forgot:function(i){
     r.demo_code=code}
   return r},
 pw_reset:function(i){
-  var kind=i.kind==="staff"?"staff":"customer",email=cl(i.email,80).toLowerCase(),code=String(i.code||"").replace(/\D/g,""),pw=String(i.password||""),min=kind==="staff"?8:6;
+  var kind=i.kind==="staff"?"staff":(i.kind==="customer"?"customer":"any"),email=cl(i.email,80).toLowerCase(),code=String(i.code||"").replace(/\D/g,""),pw=String(i.password||""),min=kind==="staff"?8:6;
   if(pw.length<min||pw.length>100)throw E("Parol ən azı "+min+" simvol olmalıdır");
   var bad="Kod yanlışdır və ya vaxtı bitib. Yeni kod istəyin.",r=db.resets.filter(function(x){return x.kind===kind&&x.email===email})[0];
   if(!r||r.exp<now()||r.tries>=5){if(r)db.resets=db.resets.filter(function(x){return x!==r});throw E(bad)}
   if(code.length!==6||code!==r.code){r.tries++;save();throw E(bad)}
-  if(kind==="staff"){db.admins.forEach(function(a){if(a.email===email&&a.active){a.pw=pw;a.pw_set=1}})}
-  else db.customers.forEach(function(c){if(c.email===email)c.pw=pw});
+  var isAdm=kind!=="customer"&&db.admins.some(function(a){return a.email===email&&a.active});
+  if(isAdm&&pw.length<8)throw E("Admin hesabı üçün parol ən azı 8 simvol olmalıdır");
+  if(kind!=="customer")db.admins.forEach(function(a){if(a.email===email&&a.active){a.pw=pw;a.pw_set=1}});
+  if(kind!=="staff")db.customers.forEach(function(c){if(c.email===email)c.pw=pw});
   db.resets=db.resets.filter(function(x){return x!==r});return{ok:true}},
 register:function(i){
   var name=cl(i.name,60),email=cl(i.email,80).toLowerCase(),phone=norm(i.phone),pw=String(i.password||"");
   if(name.length<2)throw E("Adınızı yazın");if(!GM.test(email))throw E("Yalnız Gmail ünvanı ilə qeydiyyat olur (nümunə: ad@gmail.com)");
   if(!phone)throw E("Telefon nömrəsini düzgün yazın (nümunə: 050 123 45 67)");if(pw.length<6||pw.length>100)throw E("Parol ən azı 6 simvol olmalıdır");
   if(!i.accept)throw E("Məxfilik siyasəti və istifadə şərtləri ilə razılıq lazımdır");
-  if(db.customers.some(function(c){return c.email===email}))throw E("Bu Gmail artıq qeydiyyatdan keçib. Daxil olun.",409);
+  if(db.customers.some(function(c){return c.email===email})||db.admins.some(function(a){return a.email===email}))throw E("Bu Gmail artıq qeydiyyatdan keçib. Daxil olun.",409);
   var c={id:++db.ids.cust,name:name,email:email,phone:phone,pw:pw,address:cl(i.address,200),created:now(),favs:[]};db.customers.push(c);sess.cid=c.id;
   var r=mePack(c);r.csrf="demo";return r},
 login:function(i){
   var email=cl(i.email,80).toLowerCase(),c=db.customers.filter(function(x){return x.email===email})[0];
   if(!c||c.pw!==String(i.password||""))throw E("Gmail və ya parol yanlışdır",401);
   sess.cid=c.id;var r=mePack(c);r.csrf="demo";return r},
+/* BİR GİRİŞ HAMI ÜÇÜN: müştəri də, admin də saytda Gmail və parolunu yazır; hesab növünə görə daxil olur */
+signin:function(i){
+  var email=cl(i.email,80).toLowerCase(),pw=String(i.password||""),c=db.customers.filter(function(x){return x.email===email})[0];
+  if(c&&c.pw===pw){sess.cid=c.id;sess.sid=0;var r=mePack(c);r.csrf="demo";r.role="customer";return r}
+  var a=db.admins.filter(function(x){return x.email===email&&x.active})[0];
+  if(a&&a.pw_set&&a.pw===pw){sess.sid=a.id;sess.cid=0;a.last_login=now();return{role:"staff",csrf:"demo",staff:staffOut(a),push:{enabled:true,key:""}}}
+  throw E("Gmail və ya parol yanlışdır",401)},
 logout:function(){sess.cid=0;return{ok:true}},
 profile:function(i){
   var c=customer();if(!c)throw E("Giriş tələb olunur",401);var name=cl(i.name,60),phone=norm(i.phone);
@@ -1178,7 +1187,7 @@ az:{
  /* hesab */
  sw_t:"Başqa filial?",sw_d:"Səbətdə başqa filialın yeməkləri var. Təmizləyib bu filialdan davam edək?",sw_yes:"Bəli, təmizlə",sw_no:"Xeyr, saxla",
  au_login:"Daxil ol",au_reg:"Qeydiyyat",au_title:"Hesab",au_gmail:"Gmail ünvanı",au_pw:"Parol",au_pw6:"Parol (ən azı 6 simvol)",au_name:"Ad və soyad",
- au_gmail_h:"Yalnız @gmail.com ünvanı qəbul olunur.",au_do_login:"Daxil ol",au_do_reg:"Qeydiyyatdan keç",gmailerr:"Yalnız Gmail ünvanı yazın (nümunə: ad@gmail.com)",pwerr:"Parol ən azı 6 simvol olmalıdır",
+ au_gmail_h:"Yalnız @gmail.com ünvanı qəbul olunur.",au_do_login:"Daxil ol",au_do_reg:"Qeydiyyatdan keç",gmailerr:"Yalnız Gmail ünvanı yazın (nümunə: ad@gmail.com)",mailerr:"Gmail ünvanını düzgün yazın",pwerr:"Parol ən azı 6 simvol olmalıdır",
  accept:"{p} və {s} ilə razıyam",needaccept:"Davam etmək üçün razılığı təsdiq edin",
  welcome:"Xoş gəldiniz",logout:"Çıxış",myorders:"Sifarişlərim",noorders:"Hələ sifariş yoxdur.",save:"Yadda saxla",saved:"Saxlandı",profile:"Məlumatlarım",
  reorder:"Təkrar sifariş et",ro_done:"Səbət hazırdır: {n} məhsul əlavə olundu",ro_skip:"{n} məhsul artıq mövcud deyil və ya dəyişib",ro_none:"Bu sifarişin məhsulları artıq mövcud deyil",ro_gone:"Bu filial hazırda aktiv deyil",
@@ -1242,7 +1251,7 @@ en:{
  refresh:"Refresh status",live_note:"The status refreshes automatically.",
  sw_t:"Another branch?",sw_d:"Your cart has dishes from another branch. Clear it and continue with this one?",sw_yes:"Yes, clear",sw_no:"No, keep",
  au_login:"Sign in",au_reg:"Register",au_title:"Account",au_gmail:"Gmail address",au_pw:"Password",au_pw6:"Password (at least 6 characters)",au_name:"Full name",
- au_gmail_h:"Only @gmail.com addresses are accepted.",au_do_login:"Sign in",au_do_reg:"Create account",gmailerr:"Enter a Gmail address (e.g. name@gmail.com)",pwerr:"Password must be at least 6 characters",
+ au_gmail_h:"Only @gmail.com addresses are accepted.",au_do_login:"Sign in",au_do_reg:"Create account",gmailerr:"Enter a Gmail address (e.g. name@gmail.com)",mailerr:"Enter your Gmail address correctly",pwerr:"Password must be at least 6 characters",
  accept:"I agree to the {p} and {s}",needaccept:"Please accept to continue",
  welcome:"Welcome",logout:"Sign out",myorders:"My orders",noorders:"No orders yet.",save:"Save",saved:"Saved",profile:"My details",
  reorder:"Order again",ro_done:"Your cart is ready: {n} items added",ro_skip:"{n} items are no longer available or have changed",ro_none:"The items of this order are no longer available",ro_gone:"This branch is not active right now",
@@ -1788,12 +1797,17 @@ function renderAuth(){
    :fg?fpHtml()
    :'<form class="fm" id="auForm" novalidate>'
    +(reg?'<div class="f"><label for="auName">'+t("au_name")+'</label><input id="auName" autocomplete="name" maxlength="60"></div>':'')
-   +'<div class="f"><label for="auMail">'+t("au_gmail")+'</label><input id="auMail" type="email" autocomplete="email" placeholder="ad@gmail.com" maxlength="80" value="'+esc(S.loginEmail||"")+'"><span class="hint">'+t("au_gmail_h")+'</span></div>'
+   +'<div class="f"><label for="auMail">'+t("au_gmail")+'</label><input id="auMail" type="email" autocomplete="'+(reg?"email":"username")+'" placeholder="ad@gmail.com" maxlength="80" value="'+esc(S.loginEmail||"")+'">'+(reg?'<span class="hint">'+t("au_gmail_h")+'</span>':'')+'</div>'
    +(reg?'<div class="f"><label for="auPhone">'+t("k_phone")+'</label><input id="auPhone" type="tel" autocomplete="tel" placeholder="050 123 45 67" maxlength="24"></div>':'')
    +'<div class="f"><label for="auPw">'+(reg?t("au_pw6"):t("au_pw"))+'</label><input id="auPw" type="password" autocomplete="'+(reg?"new-password":"current-password")+'" maxlength="100"></div>'
    +(reg?'<label class="chk"><input type="checkbox" id="auAcc"><span>'+t("accept").replace("{p}",'<a href="#mexfilik" target="_blank" rel="noopener">'+t("privacy")+'</a>').replace("{s}",'<a href="#sertler" target="_blank" rel="noopener">'+t("terms")+'</a>')+'</span></label>':'')
    +(reg?'':'<button class="linkbtn" data-act="forgot" type="button">'+t("au_forgot")+'</button>')+'<div class="err" id="auErr" aria-live="polite">'+(S.authNote?esc(S.authNote):"")+'</div><button class="btn" type="submit">'+(reg?t("au_do_reg"):t("au_do_login"))+'</button></form>')
+   +(!reg&&!fv&&!fg&&window.ALOV_DEMO?demoBoxHtml():'')
    +'<div class="mfoot"><button class="btn ghost sm" data-act="mclose" type="button">'+t("close")+'</button></div>'}
+/* yalnız demoda: nümunə admin Gmail-ləri (toxunanda giriş sahələri dolur). Real saytda bu qutu yoxdur */
+var DEMO_ADM=[["alovesuperadmin@gmail.com","Baş Direktor"],["alovemasalli1@gmail.com","Masallı meneceri"],["alovelenkeran@gmail.com","Lənkəran meneceri"]];
+function demoBoxHtml(){
+  return '<div class="fpnote" id="demoBox" style="margin-top:12px"><b>Demo:</b> admin Gmail-ləri (parol hamısında <b>demo1234</b>)'+DEMO_ADM.map(function(a){return '<br><button class="linkbtn" type="button" data-act="demofill" data-mail="'+a[0]+'">'+a[0]+' · '+a[1]+'</button>'}).join("")+'</div>'}
 function fpHtml(){
   var f=S.fp||(S.fp={step:1,email:""});
   return '<form class="fm" id="fpForm" novalidate><h3 style="font-size:1.2rem">'+t("fp_title")+'</h3><p class="hint">'+t(f.step===1?"fp_h1":"fp_h2")+'</p>'
@@ -1804,14 +1818,19 @@ function fpHtml(){
 function submitForgot(e){
   e.preventDefault();var f=S.fp,er=$("#fpErr");
   if(f.step===1){
-    var mail=$("#fpMail").value.trim().toLowerCase();if(!GM.test(mail)){er.textContent=t("gmailerr");return}
-    API.call("pw_forgot",{kind:"customer",email:mail}).then(function(j){S.fp={step:2,email:mail,demo:j&&j.demo_code||""};renderAuth();var c=$("#fpCode");if(c)c.focus()}).catch(function(x){er.textContent=x&&x.message||t("neterr")});return}
+    var mail=$("#fpMail").value.trim().toLowerCase();if(!EM.test(mail)){er.textContent=t("mailerr");return}
+    API.call("pw_forgot",{email:mail}).then(function(j){S.fp={step:2,email:mail,demo:j&&j.demo_code||""};renderAuth();var c=$("#fpCode");if(c)c.focus()}).catch(function(x){er.textContent=x&&x.message||t("neterr")});return}
   var code=$("#fpCode").value.trim(),pw=$("#fpPw").value;
   if(!/^\d{6}$/.test(code)){er.textContent=t("fp_code");return}
   if(pw.length<6){er.textContent=t("pwerr");return}
-  API.call("pw_reset",{kind:"customer",email:f.email,code:code,password:pw}).then(function(){S.loginEmail=f.email;S.fp=null;S.authTab="login";S.authNote=t("fp_done");renderAuth();S.authNote="";toast(t("fp_done"))}).catch(function(x){er.textContent=x&&x.message||t("neterr")})}
-var GM=/^[a-z0-9._%+-]{3,64}@gmail\.com$/i;
+  API.call("pw_reset",{email:f.email,code:code,password:pw}).then(function(){S.loginEmail=f.email;S.fp=null;S.authTab="login";S.authNote=t("fp_done");renderAuth();S.authNote="";toast(t("fp_done"))}).catch(function(x){er.textContent=x&&x.message||t("neterr")})}
+var GM=/^[a-z0-9._%+-]{3,64}@gmail\.com$/i,EM=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function enterAdmin(){
+  hideModal("#mAuth");hideModal("#mWelcome");
+  if(window.__alovAdmin){window.__alovAdmin.open();return}
+  location.href="admin.html"}
 function afterLogin(j){
+  if(j&&j.role==="staff"){enterAdmin();return}
   applyMe(j);var loc=localFavs();
   if(loc.length)API.call("fav_sync",{items:loc}).then(function(r){S.favs=r.favs;lsSet("alov_favs","[]");refreshFavUI()}).catch(function(){});
   lsSet("alov_seen","1");S.accTab="orders";hideModal("#mAuth");hideModal("#mWelcome");renderStatic();refreshFavUI();if(S.cur)renderBranch();
@@ -1820,13 +1839,13 @@ function afterLogin(j){
 function submitAuth(e){
   e.preventDefault();var reg=S.authTab==="reg",er=$("#auErr");
   var mail=$("#auMail").value.trim(),pw=$("#auPw").value;
-  if(!GM.test(mail)){er.textContent=t("gmailerr");return}
+  if(reg?!GM.test(mail):!EM.test(mail)){er.textContent=t(reg?"gmailerr":"mailerr");return}
   if(reg&&pw.length<6){er.textContent=t("pwerr");return}
   if(!pw){er.textContent=t("pwerr");return}
   if(reg&&!$("#auAcc").checked){er.textContent=t("needaccept");return}
   var data={email:mail,password:pw};
   if(reg){data.name=$("#auName").value.trim();data.phone=$("#auPhone").value.trim();data.accept=true}
-  API.call(reg?"register":"login",data).then(afterLogin).catch(function(x){
+  API.call(reg?"register":"signin",data).then(afterLogin).catch(function(x){
     if(reg&&x&&x.status===409){S.loginEmail=mail;S.authTab="login";S.authNote=t("au_exists");renderAuth();S.authNote="";var pe=$("#auPw");if(pe)pe.focus();return}
     er.textContent=x&&x.message||t("neterr")})}
 function saveProfile(e){
@@ -1871,6 +1890,7 @@ function track(e){
 /* ---------- marşrut ---------- */
 function route(){
   var h=decodeURIComponent((location.hash||"").slice(1)),m=/^filial-([a-z0-9-]+)$/.exec(h);
+  if(h==="giris"||h==="admin"){try{history.replaceState(null,"",location.pathname+location.search)}catch(x){}showHome();hideModal("#mWelcome");if(!S.customer)openAuth("login");return}
   if(m){var b=S.branches.filter(function(x){return x.slug===m[1]})[0];if(b){showBranch(b);return}showBranches();return}
   if(h==="filiallar"){showBranches();return}
   if(h==="mexfilik"){showLegal("privacy");return}
@@ -1908,6 +1928,7 @@ document.addEventListener("click",function(e){
     else if(a==="wstart"){closeWelcome();location.hash="filiallar"}
     else if(a==="wreg"){closeWelcome();openAuth("reg")}
     else if(a==="wlogin"){closeWelcome();openAuth("login")}
+    else if(a==="demofill"){var dm=$("#auMail"),dp=$("#auPw");if(dm&&dp){dm.value=el.getAttribute("data-mail");dp.value="demo1234";dp.focus()}}
     else if(a==="forgot"){S.fp={step:1,email:($("#auMail")||{}).value||S.loginEmail||""};S.authTab="forgot";renderAuth();var fm=$("#fpMail");if(fm)fm.focus()}
     else if(a==="fpback"){if(S.fp&&S.fp.step===2){S.fp.step=1}else{S.authTab="login"}renderAuth()}
     else if(a==="promoapply"){applyPromo()}
@@ -1960,10 +1981,11 @@ window.addEventListener("resize",setHH);
 /* ---------- başlanğıc ---------- */
 loadCart();S.favs=localFavs();applyI18n();renderStatic();setHH();refreshFavUI();
 if(window.ResizeObserver){try{new ResizeObserver(setHH).observe($("header"))}catch(e){}}
+var hash0=(location.hash||"").length;
 Promise.all([API.call("public"),API.call("me")]).then(function(r){
   S.settings=r[0].settings||{};S.branches=r[0].branches||[];applyMe(r[1]);S.loaded=true;
   applyI18n();renderStatic();renderBranches();route();renderCartUI();refreshFavUI();setHH();
-  if(!lsGet("alov_seen")&&!(location.hash||"").length)openWelcome();
+  if(!lsGet("alov_seen")&&!hash0)openWelcome();
 }).catch(function(){S.loaded=true;$("#bgrid").innerHTML='<div class="skel">'+t("loadfail")+'</div>';renderTile()});
 
 /* közün uçqunları */
@@ -2199,30 +2221,7 @@ main{padding-block:20px 80px}
 <symbol id="s-doner" viewBox="0 0 120 120"><circle cx="60" cy="62" r="52" fill="#2d2119"/><circle cx="60" cy="62" r="44" fill="#3b2c22"/><g transform="rotate(-24 60 62)"><rect x="26" y="45" width="68" height="36" rx="17" fill="#e2bf82"/><rect x="26" y="45" width="68" height="14" rx="7" fill="#efd4a0"/><path d="M52 47H94V79H52Z" fill="#c9ccd1" opacity=".92"/><path d="M52 47V79" stroke="#9aa0a8" stroke-width="2"/><path d="M60 53H88M60 63H88M60 73H88" stroke="#aab0b8" stroke-width="2"/><ellipse cx="34" cy="63" rx="9" ry="16" fill="#f3dfb2"/><circle cx="32" cy="55" r="5" fill="#8a4a2a"/><circle cx="36" cy="66" r="5.5" fill="#6fa04a"/><circle cx="31" cy="71" r="4" fill="#d9442b"/><circle cx="35" cy="58" r="3" fill="#e8d6b0"/></g></symbol>
 </svg>
 
-<div class="login" id="login">
-  <div class="lbox">
-    <div class="lbrand"><svg viewBox="0 0 24 30" aria-hidden="true"><use href="#flame"/></svg>Alov</div>
-    <h1>Admin paneli</h1>
-    <p class="muted sm" id="lHint">Öz admin Gmail ünvanınız və parolunuzla daxil olun. Hər admin yalnız öz hesabına girir.</p>
-    <form id="lform" novalidate style="display:grid;gap:12px;margin-top:16px">
-      <div class="f"><label for="lMail">Gmail</label><input id="lMail" type="email" autocomplete="username" placeholder="filial@gmail.com"></div>
-      <div class="f"><label for="lPw">Parol</label><input id="lPw" type="password" autocomplete="current-password"></div>
-      <div class="err" id="lErr" aria-live="polite"></div>
-      <button class="btn" type="submit">Daxil ol</button>
-      <button class="linkbtn" id="lForgot" type="button">Şifrəni təyin et / unutdum</button>
-    </form>
-    <div class="fpnote" id="demoBox" hidden style="margin-top:14px"></div>
-    <form id="fpform" novalidate hidden style="display:grid;gap:12px;margin-top:16px">
-      <div class="fpnote" id="fpNote" hidden></div>
-      <div class="f" id="fpMailW"><label for="fpMail">Gmail</label><input id="fpMail" type="email" autocomplete="username" placeholder="filial@gmail.com"></div>
-      <div class="f" id="fpCodeW" hidden><label for="fpCode">Gmail-ə gələn kod (6 rəqəm)</label><input id="fpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></div>
-      <div class="f" id="fpPwW" hidden><label for="fpPw">Yeni parol (ən azı 8 simvol)</label><input id="fpPw" type="password" autocomplete="new-password" maxlength="100"></div>
-      <div class="err" id="fpErr" aria-live="polite"></div>
-      <button class="btn" id="fpBtn" type="submit">Kod göndər</button>
-      <button class="linkbtn" id="fpBack" type="button">Geri, girişə qayıt</button>
-    </form>
-  </div>
-</div>
+<div class="skel" id="boot" style="padding:48px 16px;text-align:center">Yüklənir…</div>
 
 <div id="app" hidden>
   <header class="top"><div class="wrap">
@@ -2245,11 +2244,10 @@ var host=document.createElement("div");host.id="admHost";host.hidden=true;docume
 var sr=host.attachShadow({mode:"open"});sr.appendChild(document.getElementById("admTpl").content.cloneNode(true));
 window.__ALOV_ADMIN_ROOT=sr;
 var st=document.createElement("style");st.textContent="#admHost[hidden]{display:none!important}";document.head.appendChild(st);
-function open(){host.hidden=false;document.body.classList.add("lock")}
+function open(){host.hidden=false;document.body.classList.add("lock");if(window.__alovAdminEnter)window.__alovAdminEnter()}
 function close(){host.hidden=true;document.body.classList.remove("lock")}
-function sync(){if(location.hash==="#admin")open();else close()}
-sr.addEventListener("click",function(e){if(e.target.closest("#backToSite")){try{history.replaceState(null,"",location.pathname+location.search)}catch(x){location.hash=""}close()}});
-window.addEventListener("hashchange",sync);sync();
+window.__alovAdmin={open:open,close:close};
+sr.addEventListener("click",function(e){if(e.target.closest("#backToSite"))close()});
 })();
 </script>
 
@@ -2270,7 +2268,7 @@ function fmtTime(ts){var d=new Date(ts*1000),n=new Date();var hm=pad(d.getHours(
 function ago(ts){var s=Math.max(0,Math.floor(Date.now()/1000)-ts);if(s<60)return "indicə";if(s<3600)return Math.floor(s/60)+" dəq əvvəl";if(s<86400)return Math.floor(s/3600)+" saat əvvəl";return Math.floor(s/86400)+" gün əvvəl"}
 function toast(m,bad){var el=$("#toast");el.textContent=m;el.className="toast"+(bad?" bad":"");el.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(function(){el.hidden=true},3400)}
 function nrm(s){return String(s==null?"":s).replace(/İ/g,"I").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/ə/g,"e").replace(/ı/g,"i")}
-function fail(e){toast(e&&e.message?e.message:"Əlaqə xətası",true)}
+function fail(e){if(e&&e.status===401&&S.staff){leave(true);return}toast(e&&e.message?e.message:"Əlaqə xətası",true)}
 
 var ROLE={owner:"Baş Direktor",manager:"Filial meneceri",staff:"İşçi"};
 var ST={new:"Yeni",accepted:"Qəbul olundu",preparing:"Hazırlanır",ontheway:"Kuryerə verildi",done:"Təhvil verildi",cancelled:"Ləğv edildi"};
@@ -2293,12 +2291,20 @@ function updateTitle(){var n=S.orders.filter(function(o){return o.status==="new"
 
 /* ---------- giriş ---------- */
 function showApp(){
-  $("#login").hidden=true;$("#app").hidden=false;
+  $("#boot").hidden=true;$("#app").hidden=false;
   var st=S.staff;$("#roleLbl").textContent=ROLE[st.role]||st.role;$("#whoLbl").textContent=st.name+(st.branch?" · "+st.branch:"");
   if("Notification" in window&&Notification.permission==="default")$("#notifBtn").hidden=false;
   S.sound=false;soundLabel();S.ps="checking";
   S.tab="orders";S.baseline=false;renderTabs();start();pushRefresh(true)}
-function showLogin(){clearInterval(S.timer);$("#app").hidden=true;$("#login").hidden=false;S.staff=null;S.data=null;S.orders=[];S.customers=null;S.menu=null;S.stats=null;S.promos=null;S.reviews=null;S.stock=null;if(ROOT===document)document.title="Alov Admin Paneli"}
+/* Admin üçün ayrıca giriş səhifəsi YOXDUR: hamı (müştəri də, admin də) saytın öz "Daxil ol" pəncərəsindən girir.
+   Sessiya yoxdursa / çıxış edilibsə sayta qaytarılır. */
+function resetState(){clearInterval(S.timer);S.staff=null;S.data=null;S.orders=[];S.customers=null;S.menu=null;S.stats=null;S.promos=null;S.reviews=null;S.stock=null;S.tab="orders"}
+function leave(toLogin){
+  resetState();$("#app").hidden=true;$("#boot").hidden=false;
+  if(window.ALOV_DEMO&&window.__alovAdmin){window.__alovAdmin.close();if(toLogin)location.hash="#giris";return}
+  if(ROOT===document)document.title="Alov";
+  location.replace(toLogin?"./#giris":"./")}
+function showLogin(){leave(true)}
 function start(){
   var need=S.staff.role!=="staff"?API.call("s_data").then(function(d){S.data=d;if(!S.sel||!branchById(S.sel))S.sel=d.branches.length?d.branches[0].id:0}):Promise.resolve();
   need.then(function(){return loadOrders(true)}).then(function(){render();clearInterval(S.timer);S.timer=setInterval(function(){if(S.staff)loadOrders(false).then(function(){if(S.tab==="orders")renderOrders()}).catch(function(){})},6000)}).catch(fail)}
@@ -2782,11 +2788,7 @@ ROOT.addEventListener("change",function(e){
   if(t.id==="galUp"&&t.files.length){var files=Array.prototype.slice.call(t.files,0,8-S.brForm.gallery.length);toast("Şəkillər yüklənir…");files.reduce(function(pr,f){return pr.then(function(){return uploadImg(f,1600).then(function(p){S.brForm.gallery.push(p)})})},Promise.resolve()).then(function(){drawImgs();toast("Yükləndi")}).catch(fail)}});
 ROOT.addEventListener("submit",function(e){
   var id=e.target.id;e.preventDefault();
-  if(id==="lform"){
-    var er=$("#lErr");er.className="err";er.textContent="";
-    API.call("staff_login",{email:$("#lMail").value.trim(),password:$("#lPw").value}).then(function(j){S.staff=j.staff;S.push=j.push||S.push;$("#lPw").value="";showApp()}).catch(function(x){er.textContent=x.message||"Xəta"})}
-  else if(id==="fpform")submitFp();
-  else if(id==="brForm")saveBranch(e);
+  if(id==="brForm")saveBranch(e);
   else if(id==="siteForm")saveSite(e);
   else if(id==="nbForm"){
     var er2=$("#nbErr");API.call("s_branch_save",{name_az:$("#nbAz").value,name_en:$("#nbEn").value,slug:$("#nbSlug").value,active:1,delivery:1,fee:2,min_order:0}).then(function(j){return API.call("s_data").then(function(d){S.data=d;S.sel=j.id;closeModal();toast("Filial yaradıldı");renderBranches()})}).catch(function(x){er2.textContent=x.message||"Xəta"})}
@@ -2804,38 +2806,13 @@ ROOT.addEventListener("submit",function(e){
 ROOT.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("#mdl").hidden)closeModal()});
 $("#soundBtn").addEventListener("click",function(){initAudio();S.sound=!S.sound;lsSet("alov_sound",S.sound?"1":"0");soundLabel();if(S.sound)beep()});
 $("#notifBtn").addEventListener("click",function(){try{Notification.requestPermission().then(function(){$("#notifBtn").hidden=true})}catch(e){$("#notifBtn").hidden=true}});
-$("#outBtn").addEventListener("click",function(){pushDetach().then(function(){return API.call("staff_logout",{})}).then(showLogin).catch(showLogin)});
-
-/* ---------- giriş: parolu təyin et / unutdum (Gmail kodu ilə) ---------- */
-var FP={step:1,email:""};
-function fpShow(on){
-  $("#lform").hidden=!on?false:true;$("#fpform").hidden=on?false:true;
-  $("#lHint").textContent=on?"Gmail ünvanınızı yazın. Ona 6 rəqəmli kod göndərəcəyik; kodla öz parolunuzu qoyursunuz. İlk dəfə girirsinizsə də bu yolla parol təyin edin.":"Öz admin Gmail ünvanınız və parolunuzla daxil olun. Hər admin yalnız öz hesabına girir.";
-  $("#fpErr").textContent="";
-  if(on){FP={step:1,email:$("#lMail").value.trim()};fpDraw();$("#fpMail").value=FP.email}}
-function fpDraw(demo){
-  var two=FP.step===2;$("#fpMailW").hidden=two;$("#fpCodeW").hidden=!two;$("#fpPwW").hidden=!two;
-  $("#fpBtn").textContent=two?"Parolu yenilə":"Kod göndər";
-  var n=$("#fpNote");n.hidden=!two;
-  if(two)n.textContent=demo?"Demo rejimi: real saytda kod Gmail-ə gedir. Kod: "+demo:"Əgər bu Gmail admin kimi qeydiyyatdadırsa, kod göndərildi. Gələnlər qutusuna və Spam qovluğuna baxın. Kod 15 dəqiqə işləyir."}
-function submitFp(){
-  var er=$("#fpErr");er.className="err";er.textContent="";
-  if(FP.step===1){
-    var mail=$("#fpMail").value.trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)){er.textContent="Gmail ünvanını düzgün yazın";return}
-    API.call("pw_forgot",{kind:"staff",email:mail}).then(function(j){FP={step:2,email:mail};fpDraw(j&&j.demo_code||"");$("#fpCode").focus()}).catch(function(x){er.textContent=x.message||"Xəta"});return}
-  var code=$("#fpCode").value.trim(),pw=$("#fpPw").value;
-  if(!/^\d{6}$/.test(code)){er.textContent="6 rəqəmli kodu yazın";return}
-  if(pw.length<8){er.textContent="Parol ən azı 8 simvol olmalıdır";return}
-  API.call("pw_reset",{kind:"staff",email:FP.email,code:code,password:pw}).then(function(){
-    fpShow(false);$("#lMail").value=FP.email;$("#lPw").value="";var le=$("#lErr");le.className="okc";le.textContent="Parol yeniləndi. İndi daxil olun.";$("#lPw").focus()}).catch(function(x){er.textContent=x.message||"Xəta"})}
-$("#lForgot").addEventListener("click",function(){fpShow(true)});
-$("#fpBack").addEventListener("click",function(){fpShow(false)});
+$("#outBtn").addEventListener("click",function(){pushDetach().then(function(){return API.call("staff_logout",{})}).then(function(){leave(false)}).catch(function(){leave(false)})});
 
 /* ---------- başlanğıc ---------- */
-/* yalnız demoda: admin Gmail-ləri görünür və toxunanda giriş sahələri dolur (real saytda bu qutu yoxdur) */
-if(window.ALOV_DEMO){var dbx=$("#demoBox");dbx.hidden=false;dbx.innerHTML='<b>Demo rejimi.</b> Admin Gmail-ləri (demoda parol hamısında <b>demo1234</b>):'+[["alovesuperadmin@gmail.com","Baş Direktor (bütün filiallar)"],["alovemasalli1@gmail.com","Masallı meneceri"],["alovelenkeran@gmail.com","Lənkəran meneceri"]].map(function(a){return '<br><button class="linkbtn" data-demo="'+a[0]+'" type="button">'+a[0]+' · '+a[1]+'</button>'}).join("");
-  dbx.addEventListener("click",function(e){var m=e.target.getAttribute&&e.target.getAttribute("data-demo");if(m){$("#lMail").value=m;$("#lPw").value="demo1234";$("#lPw").focus()}})}
-API.call("staff_me").then(function(j){S.push=j.push||S.push;if(j.staff){S.staff=j.staff;showApp()}}).catch(function(){$("#lErr").textContent="Server cavab vermir"});
+function enter(){
+  return API.call("staff_me").then(function(j){S.push=j.push||S.push;if(j.staff){S.staff=j.staff;showApp()}else showLogin()}).catch(function(x){if(x&&x.status===401)showLogin();else{var b=$("#boot");b.hidden=false;b.textContent="Server cavab vermir. Səhifəni yeniləyin."}})}
+if(window.ALOV_DEMO)window.__alovAdminEnter=enter;
+else enter();
 })();
 </script>
 <div id="demoNote" style="text-align:center;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));font:500 12.5px/1.4 Manrope,system-ui,sans-serif;color:#bba99a;background:#120d0b;border-top:1px solid #3b2d24">Bu nümunə (demo) saytdır: sifarişlər və hesablar yalnız bu brauzerdə saxlanır, heç yerə göndərilmir.</div></body></html>
