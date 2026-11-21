@@ -1338,9 +1338,19 @@ function scene(i){return '<svg viewBox="0 0 400 300" preserveAspectRatio="xMidYM
 function pic(u,i){u=okurl(u);return u?'<img src="'+u+'" alt="" loading="lazy">':scene(i)}
 function dish(it){var u=okurl(it.img);if(u)return '<img src="'+u+'" alt="" loading="lazy">';var ic=/^(s-[a-z]{3,10}|flame)$/.test(it.icon||"")?it.icon:"flame";return '<svg viewBox="'+(ic==="flame"?"0 0 24 30":"0 0 120 120")+'" aria-hidden="true"><use href="#'+ic+'"/></svg>'}
 function bIndex(b){return S.branches.indexOf(b)}
-function mapQ(b){return b.maps||b.addr_az||b.name_az}
-function mapEmbed(b){return "https://maps.google.com/maps?q="+encodeURIComponent(mapQ(b))+"&output=embed"}
-function mapRoute(b){return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(mapQ(b))}
+/* xəritə nöqtəsi: koordinat ("39.0343,48.6573"), Google Xəritə linki (içində koordinat varsa çıxarılır, qısa link olduğu kimi açılır) və ya ünvan mətni */
+var MAPH=/^https:\/\/((www|maps)\.)?google\.[a-z.]+\/|^https:\/\/maps\.app\.goo\.gl\/|^https:\/\/goo\.gl\/maps\/|^https:\/\/g\.co\/kgs\//i;
+function mapCoord(s){
+  s=String(s||"").trim();try{s=decodeURIComponent(s)}catch(e){}
+  var m=/^(-?\d{1,2}\.\d+)\s*[,; ]\s*(-?\d{1,3}\.\d+)$/.exec(s)||/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/.exec(s)||/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/.exec(s)||/[?&](?:q|query|ll|destination|daddr)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/i.exec(s);
+  return m?m[1]+","+m[2]:""}
+function mapInfo(b){
+  var raw=String(b.maps||"").trim(),c=mapCoord(raw),fb=b.addr_az||b.name_az;
+  if(c)return{q:c,link:""};
+  if(/^(https?|javascript|data|vbscript|file|ftp):/i.test(raw))return{q:fb,link:/^https:/i.test(raw)&&MAPH.test(raw)?raw:""};
+  return{q:raw||fb,link:""}}
+function mapEmbed(b){return "https://maps.google.com/maps?q="+encodeURIComponent(mapInfo(b).q)+"&output=embed"}
+function mapRoute(b){var i=mapInfo(b);return i.link||"https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(i.q)}
 function stars(avg,n){var p=Math.max(0,Math.min(5,avg||0))/5*100;return '<span class="stars" role="img" aria-label="'+(avg||0)+' / 5"><span>★★★★★</span><span class="sf" style="width:'+p+'%">★★★★★</span></span>'+(n?'<span>'+(avg||0).toFixed(1)+' ('+n+')</span>':'')}
 
 /* ---------- seçilmişlər (ürək) ---------- */
@@ -1745,7 +1755,7 @@ function startTrack(){
 
 /* ---------- modallar ---------- */
 function anyModal(){return $$(".modal").some(function(m){return !m.hidden})}
-function showModal(id){var m=$(id);m.hidden=false;document.body.classList.add("lock");setTimeout(function(){var f=$("input:not([type=radio]):not([type=checkbox]),button.btn",m);f&&f.focus({preventScroll:true})},30)}
+function showModal(id){var m=$(id);m.hidden=false;document.body.classList.add("lock");setTimeout(function(){if(m.hidden||m.contains(document.activeElement)&&document.activeElement!==m)return;var f=$("input:not([type=radio]):not([type=checkbox]),button.btn",m);f&&f.focus({preventScroll:true})},30)}
 function hideModal(id){$(id).hidden=true;if($("#drawer").hidden&&!anyModal())document.body.classList.remove("lock");if(id==="#mAuth")clearInterval(accTimer);if(id==="#mItem")S.im=null}
 var askCb=null;
 function ask(title,text,yes,no,cb){askCb=cb;$("#askBox").innerHTML='<h2 id="askTitle">'+esc(title)+'</h2><p class="muted">'+esc(text)+'</p><div class="mfoot"><button class="btn ghost" data-act="askno" type="button">'+esc(no)+'</button><button class="btn" data-act="askyes" type="button">'+esc(yes)+'</button></div>';showModal("#mAsk")}
@@ -2450,7 +2460,7 @@ function renderBranch(){
    +'<div class="row" style="margin-top:12px"><div class="f"><label>Ünvan (AZ)</label><input name="addr_az" value="'+esc(b.addr_az)+'" maxlength="160"></div><div class="f"><label>Ünvan (EN)</label><input name="addr_en" value="'+esc(b.addr_en)+'" maxlength="160"></div></div>'
    +'<div class="row" style="margin-top:12px"><div class="f"><label>Telefon</label><input name="phone" type="tel" value="'+esc(b.phone)+'" maxlength="30" placeholder="+994 25 123 45 67"></div><div class="f"><label>WhatsApp (yalnız rəqəm, 994 ilə)</label><input name="whatsapp" value="'+esc(b.whatsapp)+'" maxlength="20" placeholder="994501234567"></div></div>'
    +'<div class="row" style="margin-top:12px"><div class="f"><label>Telefon 2 (istəyə görə)</label><input name="phone2" type="tel" value="'+esc(b.phone2||"")+'" maxlength="30" placeholder="+994 55 123 45 67"></div><div class="f"><label>WhatsApp 2 (yalnız rəqəm, 994 ilə)</label><input name="whatsapp2" value="'+esc(b.whatsapp2||"")+'" maxlength="20" placeholder="994551234567"></div></div>'
-   +'<div class="f" style="margin-top:12px"><label>Xəritə üçün ünvan və ya koordinat</label><input name="maps" value="'+esc(b.maps)+'" maxlength="200" placeholder="Masallı, Heydər Əliyev prospekti 5 və ya 39.0343,48.6573"><span class="hint">Müştəri bu nöqtəyə "Yol tap" düyməsi ilə gedir. Dəqiq koordinat ən yaxşı nəticəni verir (Google Xəritədə nöqtəyə sağ klik, koordinatları kopyalayın).</span></div></div>'
+   +'<div class="f" style="margin-top:12px"><label>Xəritə nöqtəsi (koordinat, Google Xəritə linki və ya ünvan)</label><input name="maps" value="'+esc(b.maps)+'" maxlength="200" placeholder="39.0343, 48.6573" inputmode="text" autocomplete="off"><span class="hint">Müştəri "Yol tap" düyməsi ilə məhz bu nöqtəyə gedir. ƏN DƏQİQ YOL: telefonda Google Xəritə tətbiqini açın, restoranın girişini uzun basın (qırmızı nöqtə düşür), yuxarıda çıxan rəqəmlərə (məs. 39.0343, 48.6573) toxunub kopyalayın və bura yapışdırın. Eyni nöqtənin "Paylaş" linkini də yapışdıra bilərsiniz. Aşağıdakı düymə ilə yoxlayın.</span><div style="margin-top:8px"><button class="btn ghost s" data-act="maptest" type="button">Xəritədə yoxla</button></div></div></div>'
    +'<div class="card"><h3>Çatdırılma</h3><div class="row" style="align-items:end"><label class="chk"><input type="checkbox" name="delivery"'+(b.delivery?" checked":"")+'> Çatdırılma var</label><div class="f"><label>Çatdırılma haqqı (₼)</label><input name="fee" inputmode="decimal" value="'+esc(b.fee)+'"></div><div class="f"><label>Minimum sifariş (₼)</label><input name="min_order" inputmode="decimal" value="'+esc(b.min_order)+'"></div></div></div>'
    +'<div class="card"><h3>İş saatları</h3><div id="hrs" style="display:grid;gap:8px">'+hrs.map(hourRow).join("")+'</div><div style="margin-top:10px"><button class="btn ghost s" data-act="addhour" type="button">+ Sətir əlavə et</button></div></div>'
    +'<div class="card"><h3>Sosial şəbəkələr (bu filial)</h3><p class="hint" style="margin-bottom:10px">Filialın öz TikTok, Instagram və s. hesabları. Yalnız bu filialın səhifəsində göstərilir. Link boş qalsa, ad sadəcə yazı kimi görünür.</p><div id="bsocs" style="display:grid;gap:8px">'+(b.social||[]).map(socRow).join("")+'</div><div style="margin-top:10px"><button class="btn ghost s" data-act="addbsoc" type="button">+ Sətir əlavə et</button></div></div>'
@@ -2467,10 +2477,22 @@ function drawImgs(){
   var cu=okurl(f.cover);
   cb.innerHTML='<div class="gthumbs">'+(cu?'<div class="gt" style="width:140px;height:105px"><img src="'+cu+'" alt=""><button type="button" data-act="rmcover" aria-label="Sil">×</button></div>':'')+'<label class="btn ghost s" style="cursor:pointer;align-self:center">'+(cu?"Dəyiş":"Foto yüklə")+'<input type="file" accept="image/*" id="coverUp" hidden></label></div>';
   gb.innerHTML='<div class="gthumbs">'+f.gallery.map(function(u,i){u=okurl(u);return u?'<div class="gt"><img src="'+u+'" alt=""><button type="button" data-act="rmgal" data-i="'+i+'" aria-label="Sil">×</button></div>':""}).join("")+(f.gallery.length<8?'<label class="btn ghost s" style="cursor:pointer;align-self:center">+ Foto əlavə et<input type="file" accept="image/*" id="galUp" multiple hidden></label>':'')+'</div>'}
+/* koordinat çıxarma: yapışdırılan uzun Google linkindən yalnız koordinat saxlanır; qısa link və ünvan olduğu kimi qalır */
+function mapCoord(s){
+  s=String(s||"").trim();try{s=decodeURIComponent(s)}catch(e){}
+  var m=/^(-?\d{1,2}\.\d+)\s*[,; ]\s*(-?\d{1,3}\.\d+)$/.exec(s)||/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/.exec(s)||/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/.exec(s)||/[?&](?:q|query|ll|destination|daddr)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/i.exec(s);
+  return m?m[1]+","+m[2]:""}
+function normMaps(v){v=String(v||"").trim();var c=mapCoord(v);return c||v}
+function mapTestUrl(v){
+  v=String(v||"").trim();var c=mapCoord(v);
+  if(c)return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(c);
+  if(/^https:\/\/((www|maps)\.)?google\.[a-z.]+\/|^https:\/\/maps\.app\.goo\.gl\/|^https:\/\/goo\.gl\/maps\//i.test(v))return v;
+  if(/^(https?|javascript|data|vbscript|file|ftp):/i.test(v))return "https://www.google.com/maps/";
+  return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(v)}
 function saveBranch(e){
   e.preventDefault();var b=curBranch(),form=$("#brForm"),g=function(n){var el=form.elements[n];return el?el.value:""};
   var hours=$$("#hrs .row").map(function(r){return{az:$("[data-h=az]",r).value,en:$("[data-h=en]",r).value,t:$("[data-h=t]",r).value}});
-  var d={id:b.id,name_az:g("name_az"),name_en:g("name_en"),addr_az:g("addr_az"),addr_en:g("addr_en"),phone:g("phone"),whatsapp:g("whatsapp"),phone2:g("phone2"),whatsapp2:g("whatsapp2"),maps:g("maps"),delivery:form.elements.delivery.checked?1:0,email_on:form.elements.email_on.checked?1:0,fee:g("fee"),min_order:g("min_order"),hours:hours,social:$$("#bsocs .row").map(function(r){return{n:$("[data-s=n]",r).value,h:$("[data-s=h]",r).value,u:$("[data-s=u]",r).value}}),cover:S.brForm.cover,gallery:S.brForm.gallery};
+  var d={id:b.id,name_az:g("name_az"),name_en:g("name_en"),addr_az:g("addr_az"),addr_en:g("addr_en"),phone:g("phone"),whatsapp:g("whatsapp"),phone2:g("phone2"),whatsapp2:g("whatsapp2"),maps:normMaps(g("maps")),delivery:form.elements.delivery.checked?1:0,email_on:form.elements.email_on.checked?1:0,fee:g("fee"),min_order:g("min_order"),hours:hours,social:$$("#bsocs .row").map(function(r){return{n:$("[data-s=n]",r).value,h:$("[data-s=h]",r).value,u:$("[data-s=u]",r).value}}),cover:S.brForm.cover,gallery:S.brForm.gallery};
   if(S.staff.role==="owner"){d.active=form.elements.active.checked?1:0;d.sort=g("sort")}
   API.call("s_branch_save",d).then(function(){return API.call("s_data")}).then(function(j){S.data=j;S.menu=null;toast("Filial saxlandı");renderBranch()}).catch(function(x){$("#brErr").textContent=x.message||"Xəta"})}
 
@@ -2753,6 +2775,7 @@ ROOT.addEventListener("click",function(e){
    case"rvdel":confirmBox("Rəyi sil","Bu rəy həmişəlik silinəcək. Əvəzinə gizlətmək olar.","Sil","Geri",function(){closeModal();API.call("s_review_delete",{id:id2}).then(function(){S.reviews=S.reviews.filter(function(x){return x.id!==id2});toast("Silindi");drawReviews()}).catch(fail)});break;
    case"savemenu":saveMenu();break;
    case"copymenu":var from=+$("#copyFrom").value,fb=branchById(from),cb=curBranch();confirmBox("Menyunu kopyala",cb.name_az+" filialının indiki menyusu silinib "+fb.name_az+" menyusu ilə əvəz olunacaq.","Kopyala","Geri",function(){closeModal();API.call("s_menu_copy",{from:from,to:cb.id}).then(function(){return API.call("s_data")}).then(function(j){S.data=j;S.menu=null;toast("Menyu kopyalandı");renderMenu()}).catch(fail)});break;
+   case"maptest":{var mi=$("#brForm").elements.maps;var mu=mapTestUrl(mi?mi.value:"");try{window.open(mu,"_blank","noopener")}catch(e){}break}
    case"addhour":$("#hrs").insertAdjacentHTML("beforeend",hourRow({az:"",en:"",t:""}));break;
    case"rmcover":S.brForm.cover="";drawImgs();break;
    case"rmgal":S.brForm.gallery.splice(i,1);drawImgs();break;
