@@ -703,7 +703,7 @@ function cl(v,n){return typeof v==="string"?v.replace(/[\u0000-\u0008\u000B\u000
 function norm(p){var d=String(p||"").replace(/\D/g,"");if(d.length===10&&d[0]==="0")d="994"+d.slice(1);else if(d.length===9)d="994"+d;return d.length>=11&&d.length<=15?d:""}
 function num(v,min,max,def){if(typeof v==="string")v=v.replace(",",".").trim();var f=Math.round(parseFloat(v)*100)/100;if(!isFinite(f)||f<min||f>max||v===""||v===null)return def||0;return f}
 function r2(x){return Math.round(x*100)/100}
-function videoOk(u){return typeof u==="string"&&/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)?u:""}
+function videoOk(u){return typeof u==="string"&&(/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)||/^idb:vid-[a-f0-9]{12}$/.test(u))?u:""}
 function pathOk(u){return typeof u==="string"&&(/^uploads\/[A-Za-z0-9._-]{1,80}$/.test(u)||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(u))?u:""}
 var GM=/^[a-z0-9._%+-]{3,64}@gmail\.com$/i;
 var PN={"İ":"I","ı":"I","Ə":"E","ə":"E","Ş":"S","ş":"S","Ç":"C","ç":"C","Ğ":"G","ğ":"G","Ö":"O","ö":"O","Ü":"U","ü":"U"};
@@ -771,7 +771,7 @@ function staff(){var a=sess.sid?db.admins.filter(function(x){return x.id===sess.
 function needStaff(roles){var s=staff();if(!s)throw E("Giriş tələb olunur",401);if(roles&&roles.indexOf(s.role)<0)throw E("Bu əməliyyat üçün icazəniz yoxdur",403);return s}
 function canBranch(s,id){return s.role==="owner"||s.branch_id===id}
 function custOut(c){return c?{id:c.id,name:c.name,email:c.email,phone:c.phone,address:c.address}:null}
-function staffOut(s){var b=s.branch_id?branch(s.branch_id):null;return{id:s.id,name:s.name,email:s.email,role:s.role,branch_id:s.branch_id||null,branch:b?b.name_az:""}}
+function staffOut(s){var b=s.branch_id?branch(s.branch_id):null;return{id:s.id,name:s.name,email:s.email,role:s.role,branch_id:s.branch_id||null,branch:b?b.name_az:"",video_mb:50}}
 function ordOut(o){var b=branch(o.branch_id)||{};return{id:o.id,code:"#"+(1000+o.id),branch_id:o.branch_id,branch:b.name_az||"",branch_en:b.name_en||"",mode:o.mode,name:o.name,phone:o.phone,address:o.address,note:o.note,payment:o.payment,status:o.status,subtotal:o.subtotal,fee:o.fee,discount:o.discount||0,promo:o.promo||"",total:o.total,created:o.created,updated:o.updated,items:clone(o.items)}}
 function itemRating(bid,iid){var l=db.reviews.filter(function(r){return r.visible&&r.branch_id===bid&&r.item_key===iid});return l.length?{avg:Math.round(l.reduce(function(a,r){return a+r.rating},0)/l.length*10)/10,n:l.length}:{avg:0,n:0}}
 function vOn(v){return v.avail!==0}
@@ -997,6 +997,7 @@ s_branch_save:function(i){
     var slug=cl(i.slug,30).toLowerCase();if(!/^[a-z0-9-]{2,30}$/.test(slug))throw E("Ünvan adı (slug) yalnız kiçik latın hərfləri, rəqəm və tire ola bilər");
     if(db.branches.some(function(x){return x.slug===slug}))throw E("Bu slug artıq var",409);
     b={id:++db.ids.branch,slug:slug,active:1,sort:0,email_on:1,menu:starterMenu()};db.branches.push(b)}
+  if(b.video&&b.video!==f.video&&/^idb:/.test(b.video)&&window.__alovMedia)window.__alovMedia.del(b.video);
   Object.keys(f).forEach(function(k){b[k]=f[k]});return{id:b.id}},
 s_branch_delete:function(i){needStaff(["owner"]);var id=+i.id;if(db.orders.some(function(o){return o.branch_id===id}))throw E("Bu filialda sifariş tarixçəsi var. Silmək əvəzinə \"Aktiv\" xanasını söndürün.");
   db.branches=db.branches.filter(function(b){return b.id!==id});db.admins.forEach(function(a){if(a.branch_id===id)a.branch_id=null});return{ok:true}},
@@ -1114,7 +1115,18 @@ function upload(blob){
     var img=new Image(),u=URL.createObjectURL(blob);
     img.onload=function(){var r=Math.min(1,720/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.max(1,Math.round(img.width*r));c.height=Math.max(1,Math.round(img.height*r));c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);res({path:c.toDataURL("image/jpeg",.7)})};
     img.onerror=function(){URL.revokeObjectURL(u);rej(E("Şəkil oxunmadı"))};img.src=u})}
-function uploadVideo(){return Promise.reject(E("Demo rejimində video yükləmək olmur. Real saytda (hostinqdə) işləyir."))}
+/* Demoda video: serveri olmadığından brauzerin IndexedDB-sində saxlanır (yalnız bu cihazda görünür) */
+var _mu={};
+function idbOpen(){return new Promise(function(res,rej){try{var r=indexedDB.open("alov_demo_media",1);r.onupgradeneeded=function(){r.result.createObjectStore("m")};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error||new Error("idb"))}}catch(e){rej(e)}})}
+function idbTx(mode,fn){return idbOpen().then(function(d){return new Promise(function(res,rej){var t=d.transaction("m",mode),rq=fn(t.objectStore("m"));t.oncomplete=function(){res(rq&&rq.result)};t.onerror=t.onabort=function(){rej(t.error||new Error("idb"))}})})}
+window.__alovMedia={
+  url:function(key){key=String(key).replace(/^idb:/,"");if(_mu[key])return Promise.resolve(_mu[key]);return idbTx("readonly",function(st){return st.get(key)}).then(function(b){if(!b)return"";return(_mu[key]=URL.createObjectURL(b))}).catch(function(){return""})},
+  del:function(key){key=String(key).replace(/^idb:/,"");if(_mu[key]){try{URL.revokeObjectURL(_mu[key])}catch(e){}delete _mu[key]}return idbTx("readwrite",function(st){return st["delete"](key)}).catch(function(){})}};
+function uploadVideo(file,onProgress){
+  if(!file||!(/^video\//.test(file.type)||/\.(mp4|webm|mov)$/i.test(file.name||"")))return Promise.reject(E("Yalnız video faylı seçin"));
+  if(file.size>50*1048576)return Promise.reject(E("Demo üçün video ən çox 50 MB ola bilər"));
+  var key="vid-"+Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(6)),function(x){return("0"+x.toString(16)).slice(-2)}).join("");
+  return idbTx("readwrite",function(st){return st.put(file,key)}).then(function(){if(onProgress)onProgress(100);return{path:"idb:"+key,mb:Math.round(file.size/104857.6)/10}},function(){throw E("Bu brauzerdə video saxlamaq mümkün olmadı (yaddaş bağlıdır).")})}
 return{call:call,upload:upload,uploadVideo:uploadVideo,reset:function(){try{localStorage.removeItem(KEY);localStorage.removeItem(SKEY)}catch(e){}db=null;sess={cid:0,sid:0}}};
 })();
 </script>
@@ -1139,7 +1151,9 @@ function bSocials(b){
     var u=/^https?:\/\//.test(x.u||"")?x.u:"",n=esc(x.n||""),h=esc(x.h||""),in_=(n?'<b>'+n+'</b>':"")+(h?'<span>'+h+'</span>':"");
     return u?'<a class="bsoc" target="_blank" rel="noopener noreferrer" href="'+esc(u)+'">'+SOCI+in_+'</a>':'<span class="bsoc">'+in_+'</span>'}).join("");
   return l?'<div class="bsocs" role="group" aria-label="'+t("contact")+'">'+l+'</div>':""}
-function okvid(u){return typeof u==="string"&&/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)?u:""}
+function okvid(u){return typeof u==="string"&&(/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)||/^idb:vid-[a-f0-9]{12}$/.test(u))?u:""}
+function vidAttr(u){return /^idb:/.test(u)?' data-vsrc="'+esc(u)+'"':' src="'+esc(u)+'"'}
+function hydVid(root){var m=window.__alovMedia;if(!m)return;Array.prototype.forEach.call((root||document).querySelectorAll("video[data-vsrc]"),function(v){var k=v.getAttribute("data-vsrc");v.removeAttribute("data-vsrc");m.url(k).then(function(u){if(u)v.src=u;else v.dispatchEvent(new Event("error"))})})}
 function okurl(u){return typeof u==="string"&&(/^uploads\/[A-Za-z0-9._-]{1,80}$/.test(u)||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(u))?u:""}
 function showPhone(p){var d=String(p||"").replace(/\D/g,"");if(d.length===12&&d.slice(0,3)==="994")return "0"+d.slice(3,5)+" "+d.slice(5,8)+" "+d.slice(8,10)+" "+d.slice(10);return p||""}
 function money(n){return (Math.round(n*100)/100).toFixed(2)+" ₼"}
@@ -1554,7 +1568,7 @@ function renderBranch(){
   +'<div class="bstars" id="bStars">'+(r.n?'<a href="#" data-act="torv" style="text-decoration:none;color:inherit">'+stars(r.avg,r.n)+'</a>':'')+'</div>'
   +'<div class="meta"><span><b>'+t("fee")+':</b> '+(b.delivery?(b.fee>0?money(b.fee):t("free")):"—")+'</span>'+(b.delivery&&b.min_order>0?'<span><b>'+t("min")+':</b> '+money(b.min_order)+'</span>':'')+(b.delivery?'':'<span><b>'+t("pickonly")+'</b></span>')+'</div>'+bSocials(b)+'</div>'
   +'<div class="gal" aria-label="'+t("gallery")+'">'+imgs.slice(0,5).join("")+'</div>'
-  +(vsrc?'<button type="button" class="vidbtn" id="brVideo" data-act="lbvid" aria-label="'+esc(t("lb_watch")+" · "+LB(b,"name"))+'"><video muted playsinline preload="metadata" tabindex="-1" aria-hidden="true" '+(cv?'poster="'+esc(cv)+'" src="'+esc(vsrc)+'"':'src="'+esc(vsrc)+'#t=0.1"')+'></video><span class="pl"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></i></span><span class="cap">'+t("lb_watch")+'</span></button>':'')
+  +(vsrc?'<button type="button" class="vidbtn" id="brVideo" data-act="lbvid" aria-label="'+esc(t("lb_watch")+" · "+LB(b,"name"))+'"><video muted playsinline preload="metadata" tabindex="-1" aria-hidden="true" '+(cv?'poster="'+esc(cv)+'"'+vidAttr(vsrc):/^idb:/.test(vsrc)?vidAttr(vsrc):'src="'+esc(vsrc)+'#t=0.1"')+'></video><span class="pl"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></i></span><span class="cap">'+t("lb_watch")+'</span></button>':'')
   +'<div class="blayout"><div id="menuCol"><h2 style="margin-bottom:6px;font-size:2rem">'+t("menu")+'</h2>'
   +(b.menu.length?'<div class="menubar"><div class="search">'+SEARCH_SVG+'<input id="mSearch" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="'+esc(t("search_ph"))+'" aria-label="'+esc(t("search_ph"))+'" value="'+esc(S.q)+'"><button class="clr" type="button" data-act="sclear" aria-label="'+esc(t("search_clear"))+'"'+(S.q?'':' hidden')+'>×</button></div><div class="chipbar" id="chipBar" role="tablist"></div></div><div class="mcount" id="mCount" aria-live="polite"></div><div id="itemsGrid"></div>':'<p class="empty">'+t("noitems")+'</p>')
   +'</div><aside class="sidecart card" id="sideCart"></aside></div>'
@@ -1566,7 +1580,7 @@ function renderBranch(){
   +((b.social||[]).length?'<div><h3>'+t("social")+'</h3><ul>'+b.social.map(function(x){var u=/^https?:\/\//.test(x.u||"")?x.u:"",l=esc(x.n||"")+(x.h?' · '+esc(x.h):"");return '<li>'+(u?'<a target="_blank" rel="noopener noreferrer" href="'+esc(u)+'">'+l+'</a>':l)+'</li>'}).join("")+'</ul></div>':"")
   +'<div><h3>'+t("k_addr")+'</h3><p>'+esc(LB(b,"addr"))+'</p><p style="margin-top:8px"><a target="_blank" rel="noopener" href="'+esc(mapRoute(b))+'">'+t("route")+' →</a></p></div>'
   +'<div><h3>'+t("k_hours")+'</h3><ul class="hours">'+(hoursList(b)||'<li>—</li>')+'</ul></div></div></div></div>';
-  renderChips();renderMenuList();renderCartUI();loadBranchReviews()}
+  hydVid($("#branch"));renderChips();renderMenuList();renderCartUI();loadBranchReviews()}
 
 /* menyu: axtarış + kateqoriya + seçilmişlər filtri */
 function itemHay(it){
@@ -1798,11 +1812,11 @@ function showModal(id){var m=$(id);m.hidden=false;document.body.classList.add("l
 function hideModal(id){$(id).hidden=true;if($("#drawer").hidden&&!anyModal())document.body.classList.remove("lock");if(id==="#mAuth")clearInterval(accTimer);if(id==="#mItem")S.im=null}
 /* ---------- şəkil / video baxışı (tam ekran) ---------- */
 var LX={i:0,opener:null,pushed:false,x:0,y:0};
-function lbHtml(it){return it.t==="v"?'<video controls autoplay playsinline src="'+esc(it.src)+'"'+(it.poster?' poster="'+esc(it.poster)+'"':'')+'></video>':it.t==="s"?it.h:'<img src="'+esc(it.src)+'" alt="">'}
+function lbHtml(it){return it.t==="v"?'<video controls autoplay playsinline'+vidAttr(it.src)+(it.poster?' poster="'+esc(it.poster)+'"':'')+'></video>':it.t==="s"?it.h:'<img src="'+esc(it.src)+'" alt="">'}
 function lbShow(i){
   var n=(S.lbItems||[]).length;if(!n)return;
   LX.i=(i%n+n)%n;var st=$("#lbStage"),old=$("video",st);if(old)try{old.pause()}catch(e){}
-  var it=S.lbItems[LX.i];st.innerHTML=lbHtml(it);
+  var it=S.lbItems[LX.i];st.innerHTML=lbHtml(it);hydVid(st);
   var v=$("video",st);if(v){v.addEventListener("error",function(){st.innerHTML='<p class="lberr">'+esc(t("lb_verr"))+'</p>'});var pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(function(){})}
   $("#lbCt").textContent=(LX.i+1)+" / "+n;
   var box=$("#lb");box.setAttribute("aria-label",t(it.t==="v"?"video":"lb_photo")+" "+(LX.i+1)+" / "+n);
@@ -2123,6 +2137,7 @@ button,input,select,textarea{font-family:var(--body)}
 .btn.danger:hover{background:rgba(255,122,107,.12)}
 .btn.good{background:var(--leaf);color:#10200a}
 .btn.s{padding:6px 12px;min-height:34px;font-size:.82rem}
+.fup{position:relative;overflow:hidden}.fup input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:100px;border:0;padding:0;margin:0}
 input,select,textarea{background:var(--ink);color:var(--bone);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:500 .95rem var(--body);width:100%;min-width:0}
 input:focus,select:focus,textarea:focus{border-color:var(--flame);outline:none}
 input[type=checkbox]{width:auto;accent-color:var(--ember)}
@@ -2206,6 +2221,7 @@ main{padding-block:20px 80px}
 .x:hover{border-color:var(--bad);color:var(--bad)}
 .savebar{position:sticky;bottom:calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;justify-content:space-between;align-items:center;background:rgba(27,20,17,.97);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:14px;z-index:20;flex-wrap:wrap}
 .dirty{color:var(--flame);font-weight:800;font-size:.85rem}
+@media(max-width:560px){.savebar{flex-wrap:nowrap;padding:8px 10px;gap:8px}.savebar .muted.sm{font-size:.72rem;line-height:1.25}.savebar .btn{white-space:nowrap;padding:9px 14px}}
 .gthumbs{display:flex;gap:10px;flex-wrap:wrap}
 .gt{position:relative;width:96px;height:72px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--ash)}
 .gt img{width:100%;height:100%;object-fit:cover;display:block}
@@ -2344,7 +2360,9 @@ var ROOT=window.__ALOV_ADMIN_ROOT||document;
 var $=function(s,r){return (r||ROOT).querySelector(s)};
 var $$=function(s,r){return Array.prototype.slice.call((r||ROOT).querySelectorAll(s))};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
-function okvid(u){return typeof u==="string"&&/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)?u:""}
+function okvid(u){return typeof u==="string"&&(/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)||/^idb:vid-[a-f0-9]{12}$/.test(u))?u:""}
+function vidAttr(u){return /^idb:/.test(u)?' data-vsrc="'+esc(u)+'"':' src="'+esc(u)+'"'}
+function hydVid(root){var m=window.__alovMedia;if(!m)return;Array.prototype.forEach.call((root||document).querySelectorAll("video[data-vsrc]"),function(v){var k=v.getAttribute("data-vsrc");v.removeAttribute("data-vsrc");m.url(k).then(function(u){if(u)v.src=u;else v.dispatchEvent(new Event("error"))})})}
 function okurl(u){return typeof u==="string"&&(/^uploads\/[A-Za-z0-9._-]{1,80}$/.test(u)||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(u))?u:""}
 function money(n){return (Math.round(n*100)/100).toFixed(2)+" ₼"}
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
@@ -2494,7 +2512,7 @@ function renderMenu(){
 function menuItem(it,i){
   var u=okurl(it.img),ic=it.icon||"flame";
   var thumb=u?'<img src="'+u+'" alt="">':'<svg viewBox="'+(ic==="flame"?"0 0 24 30":"0 0 120 120")+'" aria-hidden="true"><use href="#'+esc(ic)+'"/></svg>';
-  return '<div class="mi'+(it.avail?"":" off")+'" data-i="'+i+'"><div><div class="thumb">'+thumb+'</div><div class="acts"><label class="btn ghost s" style="cursor:pointer;margin:0">Şəkil<input type="file" accept="image/*" data-up="'+i+'" hidden></label>'+(u?'<button class="btn danger s" data-act="rmimg" data-i="'+i+'" type="button">Sil</button>':'')+'</div></div>'
+  return '<div class="mi'+(it.avail?"":" off")+'" data-i="'+i+'"><div><div class="thumb">'+thumb+'</div><div class="acts"><label class="btn ghost s fup" style="cursor:pointer;margin:0">Şəkil<input type="file" accept="image/*" data-up="'+i+'"></label>'+(u?'<button class="btn danger s" data-act="rmimg" data-i="'+i+'" type="button">Sil</button>':'')+'</div></div>'
    +'<div style="display:grid;gap:10px;min-width:0"><div class="row"><div class="f"><label>Ad (AZ)</label><input data-f="az" value="'+esc(it.az)+'" maxlength="80"></div><div class="f"><label>Ad (EN)</label><input data-f="en" value="'+esc(it.en)+'" maxlength="80"></div></div>'
    +'<div class="row"><div class="f"><label>Təsvir (AZ)</label><input data-f="da" value="'+esc(it.da)+'" maxlength="200"></div><div class="f"><label>Təsvir (EN)</label><input data-f="de" value="'+esc(it.de)+'" maxlength="200"></div></div>'
    +'<div class="row"><div class="f"><label>Kateqoriya</label><input data-f="cat" list="catList" value="'+esc(it.cat)+'" maxlength="40"></div><div class="f"><label>Etiket</label><select data-f="tag"><option value="">Yoxdur</option><option value="h"'+(it.tag==="h"?" selected":"")+'>Acılı</option><option value="v"'+(it.tag==="v"?" selected":"")+'>Vegetarian</option></select></div><div class="f"><label>Şəkil olmayanda işarə</label><select data-f="icon">'+ICONS.map(function(x){return '<option value="'+x[0]+'"'+(x[0]===ic?" selected":"")+'>'+x[1]+'</option>'}).join("")+'</select></div></div>'
@@ -2559,12 +2577,12 @@ function hourRow(h){return '<div class="row" style="grid-template-columns:repeat
 function drawImgs(only){
   var f=S.brForm,cb=$("#coverBox"),gb=$("#galBox");if(!cb)return;
   var cu=okurl(f.cover);
-  if(only!=="gal")cb.innerHTML='<div class="gthumbs">'+(cu?'<div class="gt" style="width:140px;height:105px"><img src="'+cu+'" alt=""><button type="button" data-act="rmcover" aria-label="Sil">×</button></div>':'')+'<label class="btn ghost s" style="cursor:pointer;align-self:center">'+(cu?"Dəyiş":"Foto yüklə")+'<input type="file" accept="image/*" id="coverUp" hidden></label></div>';
-  if(only!=="cover")gb.innerHTML='<div class="gthumbs">'+f.gallery.map(function(u,i){u=okurl(u);return u?'<div class="gt"><img src="'+u+'" alt=""><button type="button" data-act="rmgal" data-i="'+i+'" aria-label="Sil">×</button></div>':""}).join("")+(f.gallery.length<8?'<label class="btn ghost s" style="cursor:pointer;align-self:center">+ Foto əlavə et<input type="file" accept="image/*" id="galUp" multiple hidden></label>':'')+'</div>'}
+  if(only!=="gal")cb.innerHTML='<div class="gthumbs">'+(cu?'<div class="gt" style="width:140px;height:105px"><img src="'+cu+'" alt=""><button type="button" data-act="rmcover" aria-label="Sil">×</button></div>':'')+'<label class="btn ghost s fup" style="cursor:pointer;align-self:center">'+(cu?"Dəyiş":"Foto yüklə")+'<input type="file" accept="image/*" id="coverUp"></label></div>';
+  if(only!=="cover")gb.innerHTML='<div class="gthumbs">'+f.gallery.map(function(u,i){u=okurl(u);return u?'<div class="gt"><img src="'+u+'" alt=""><button type="button" data-act="rmgal" data-i="'+i+'" aria-label="Sil">×</button></div>':""}).join("")+(f.gallery.length<8?'<label class="btn ghost s fup" style="cursor:pointer;align-self:center">+ Foto əlavə et<input type="file" accept="image/*" id="galUp" multiple></label>':'')+'</div>'}
 function drawVideo(){
   var box=$("#vidBox");if(!box)return;var v=okvid(S.brForm.video);
-  box.innerHTML=(v?'<div style="max-width:360px;position:relative"><video src="'+esc(v)+'" controls playsinline preload="metadata" style="width:100%;max-height:260px;border-radius:10px;background:#000;display:block"></video></div>':'')
-   +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:'+(v?'10px':'0')+'"><label class="btn ghost s" style="cursor:pointer" id="vidLbl">'+(v?"Videonu dəyiş":"Video yüklə")+'<input type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" id="vidUp" hidden></label>'+(v?'<button type="button" class="btn ghost s" data-act="rmvid">Videonu sil</button>':'')+'</div><div class="hint" id="vidSt" style="margin-top:8px" role="status"></div>'}
+  box.innerHTML=(v?'<div style="max-width:360px;position:relative"><video'+vidAttr(v)+' controls playsinline preload="metadata" style="width:100%;max-height:260px;border-radius:10px;background:#000;display:block"></video></div>':'')
+   +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:'+(v?'10px':'0')+'"><label class="btn ghost s fup" style="cursor:pointer" id="vidLbl">'+(v?"Videonu dəyiş":"Video yüklə")+'<input type="file" accept="video/*,.mp4,.webm,.mov" id="vidUp"></label>'+(v?'<button type="button" class="btn ghost s" data-act="rmvid">Videonu sil</button>':'')+'</div><div class="hint" id="vidSt" style="margin-top:8px" role="status"></div>';hydVid(box)}
 function uploadVid(file){
   var st=$("#vidSt"),lim=(S.staff&&S.staff.video_mb)||40;
   if(!file)return;
