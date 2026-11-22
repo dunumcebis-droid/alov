@@ -83,6 +83,16 @@ nav a:hover{color:var(--bone)}
 .bbody{padding:14px 16px 16px}
 .bbody h3{font-size:1.25rem}
 .bbody p{color:var(--muted);font-size:.88rem;margin-top:4px;min-height:2.6em}
+/* telefonda Filiallar siyahısı: 2 sütun */
+@media(max-width:560px){
+.bgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:22px}
+.bgrid>.skel{grid-column:1/-1}
+.bbody{padding:10px 11px 12px}
+.bbody h3{font-size:1.05rem;line-height:1.2;overflow-wrap:anywhere}
+.bbody p{font-size:.78rem;line-height:1.35;min-height:0;overflow-wrap:anywhere}
+.bcard .bstars{margin-top:6px}
+.bcard .chips{margin-top:8px}
+}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .chip{font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .chip.go{color:var(--flame);border-color:rgba(255,154,60,.45)}
