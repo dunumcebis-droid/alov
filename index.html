@@ -763,25 +763,83 @@ function seed(){
   mk(0,3,"new",L([["BBQ burger seti",1,2,["ay"]],["Mərci şorbası",0,1]],[[1,1,2,["s1","e2"]],[3,0,1,["s3"]]]),"delivery","card","İLK20");
   mk(1,9,"preparing",[[0,0,2,["s1"]],[2,0,2]],"pickup","cash");
   return d}
+var fromStore=false;
+function fixDb(){
+  db.resets=db.resets||[];
+  db.branches.forEach(function(b){if(!Array.isArray(b.social)){var sb=SEED.branches.filter(function(x){return x.slug===b.slug})[0];b.social=sb&&Array.isArray(sb.social)?clone(sb.social):[]}})}
 function load(){
   if(db)return;
-  try{var x=JSON.parse(lg(KEY));if(x&&x.v===3&&(x.seedver||"")===(SEED.ver||"")){db=unslim(x)}}catch(e){}
+  fromStore=false;
+  try{var x=JSON.parse(lg(KEY));if(x&&x.v===3&&(x.seedver||"")===(SEED.ver||"")){db=unslim(x);fromStore=true}}catch(e){}
   if(!db){db=seed();try{localStorage.removeItem(SKEY)}catch(e){}}
-  db.resets=db.resets||[];
-  db.branches.forEach(function(b){if(!Array.isArray(b.social)){var sb=SEED.branches.filter(function(x){return x.slug===b.slug})[0];b.social=sb&&Array.isArray(sb.social)?clone(sb.social):[]}});
+  fixDb();
   try{var s=JSON.parse(lg(SKEY));if(s)sess=s}catch(e){}
-}
+  lastStr=slim(db)}
 /* Seed-in 146 yemək şəkli (~2.3 MB) yaddaşa YAZILMIR (kvota ~2.6M simvol): yalnız istifadəçinin dəyişiklikləri saxlanır */
 var SEEDIMG={};SEED.branches.forEach(function(b){(b.menu||[]).forEach(function(it){if(typeof it.img==="string"&&it.img.indexOf("data:")===0)SEEDIMG[b.slug+"|"+it.id]=it.img})});
 function slim(d){return JSON.stringify(Object.assign({},d,{branches:d.branches.map(function(b){return Object.assign({},b,{menu:(b.menu||[]).map(function(it){var si=SEEDIMG[b.slug+"|"+it.id];return si&&it.img===si?Object.assign({},it,{img:"@seed"}):it})})})}))}
 function unslim(x){x.branches.forEach(function(b){(b.menu||[]).forEach(function(it){if(it.img==="@seed")it.img=SEEDIMG[b.slug+"|"+it.id]||""})});return x}
 var lastStr=null;
+
+/* ===== Əsas saxlama yeri: Claude artifaktının öz bazası (db imkanı). Android tətbiqinin görüntüləyicisi brauzer yaddaşını (localStorage)
+   saxlamaya bilər, ona görə məlumat serverdə də durur. Brauzer yaddaşı yalnız sürətli nüsxədir. GitHub Pages-də db yoxdur: brauzer yaddaşı. ===== */
+var REM={db:null,mode:CANSTORE?"local":"memory",err:"",at:0,ts:0,chunks:[],touched:false,busy:null,again:false,late:false,noWrite:false,retry:0};
+var TSKEY="alov_demo_ts_v6",CH=100000;
+function stamp(){REM.ts=Math.max(Date.now(),REM.ts+1);return REM.ts}
+function hook(){try{if(window.__alovStoreHook)window.__alovStoreHook()}catch(e){}}
+window.__alovStore=function(){return{mode:REM.mode,err:REM.err,at:REM.at}};
+function errTxt(e){var c=e&&e.code||"";if(c==="quota_exceeded")return"serverdə yer qurtarıb";if(c==="invalid_argument"||c==="not_granted"||c==="revoked")return"bu hesabın yazmaq icazəsi yoxdur";return"şəbəkə xətası, yenidən cəhd olunacaq"}
+function remPush(){
+  if(!REM.db||REM.noWrite)return Promise.resolve();
+  if(REM.busy){REM.again=true;return REM.busy}
+  var run=function(){
+    REM.again=false;
+    var s=slim(db),ts=REM.ts||stamp(),parts=[],d=REM.db,old=REM.chunks.length,p=Promise.resolve();
+    for(var i=0;i<s.length;i+=CH)parts.push(s.slice(i,i+CH));
+    if(!parts.length)parts=["{}"];
+    parts.forEach(function(ch,i){if(REM.chunks[i]!==ch)p=p.then(function(){return d.doc("alove_chunks/c"+i).set({s:ch}).then(function(){REM.chunks[i]=ch})})});
+    p=p.then(function(){return d.doc("alove_demo/meta").set({n:parts.length,len:s.length,ts:ts})});
+    p=p.then(function(){var q=Promise.resolve();for(var i=parts.length;i<old;i++)(function(i){q=q.then(function(){return d.doc("alove_chunks/c"+i)["delete"]()})})(i);REM.chunks.length=Math.min(REM.chunks.length,parts.length);return q});
+    return p.then(function(){REM.mode="server";REM.err="";REM.at=Date.now();REM.retry=0;hook()},function(e){
+      REM.err=errTxt(e);var c=e&&e.code||"";
+      if(c==="invalid_argument"||c==="not_granted"||c==="revoked"){REM.noWrite=true;REM.mode="local"}else{REM.mode="server-err";if(REM.retry++<4)setTimeout(function(){remPush()},3000*REM.retry)}
+      hook()}).then(function(){if(REM.again&&!REM.noWrite)return run()})};
+  REM.busy=run().then(function(){REM.busy=null},function(){REM.busy=null});
+  return REM.busy}
+function remPull(){
+  var d=REM.db;
+  return d.doc("alove_demo/meta").get().then(function(m){
+    var meta=m.exists?m.data():null,lt=fromStore?(+lg(TSKEY)||0):0;
+    if(!meta||!(meta.n>0)){if(fromStore){REM.ts=Math.max(lt,Date.now());REM.touched=true;return remPush()}return}
+    if(meta.ts<=lt||(REM.late&&REM.touched)){REM.ts=Math.max(REM.ts,meta.ts,lt);if(meta.ts<lt||(REM.late&&REM.touched))return remPush();return}
+    var ps=[];for(var i=0;i<meta.n;i++)ps.push(d.doc("alove_chunks/c"+i).get());
+    return Promise.all(ps).then(function(snaps){
+      var parts=snaps.map(function(x){return x.exists&&x.data()&&typeof x.data().s==="string"?x.data().s:null});
+      if(parts.indexOf(null)>=0)throw new Error("chunk");
+      var str=parts.join("");if(str.length!==meta.len)throw new Error("len");
+      var x=JSON.parse(str);if(!x||x.v!==3||(x.seedver||"")!==(SEED.ver||""))return;
+      db=unslim(x);fixDb();lastStr=slim(db);fromStore=true;REM.chunks=parts;REM.ts=meta.ts;
+      ls(KEY,lastStr);ls(TSKEY,String(meta.ts));
+      return"adopted"})})}
+var readyP=new Promise(function(res){
+  var c=window.claude;
+  if(!c||typeof c.use!=="function"){res();return}
+  var fin=false,done=function(){if(!fin){fin=true;res()}};
+  setTimeout(function(){if(!fin){REM.late=true;done()}},3500);
+  var late=function(r){if(r==="adopted"&&REM.late){try{if(window.__alovRefresh)window.__alovRefresh()}catch(e){}}};
+  Promise.resolve(c.use("db")).then(function(d){
+    if(!d){return}
+    REM.db=d;REM.mode="server";load();
+    return remPull().then(late,function(e){REM.err=errTxt(e);REM.mode="server-err";hook()})
+  }).then(done,done)});
 function save(){
-  if(!CANSTORE)return true;
-  var s=slim(db);ls(SKEY,JSON.stringify(sess));
+  var s=slim(db);
+  if(CANSTORE)ls(SKEY,JSON.stringify(sess));
   if(s===lastStr)return true;
-  if(ls(KEY,s)){lastStr=s;return true}
-  return false}
+  var ts=stamp(),lok=CANSTORE?ls(KEY,s):false;
+  if(lok)ls(TSKEY,String(ts));
+  if(!lok&&CANSTORE&&!REM.db)return false;
+  lastStr=s;REM.touched=true;return true}
 function branch(id){return db.branches.filter(function(b){return b.id===id})[0]}
 function customer(){return sess.cid?db.customers.filter(function(c){return c.id===sess.cid})[0]:null}
 function staff(){var a=sess.sid?db.admins.filter(function(x){return x.id===sess.sid&&x.active})[0]:null;return a||null}
@@ -1122,13 +1180,19 @@ s_stats:function(i,q){
 };
 
 function call(route,data,query){
-  return new Promise(function(res,rej){
+  return readyP.then(function(){return new Promise(function(res,rej){
     setTimeout(function(){
       try{load();var h=H[route];if(!h)throw E("Naməlum sorğu",404);
         var q=new URLSearchParams((query||"").replace(/^&/,""));
+        var before=lastStr;
         var r=h(data||{},q);
         if(!save()){db=null;load();throw E("Demo yaddaşı doludur, dəyişiklik saxlanmadı. Bir neçə şəkli silin (və ya daha az şəkil yükləyin) və yenidən yoxlayın. Real saytda bu məhdudiyyət yoxdur.",507)}
-        res(clone(r))}catch(e){rej(e)}},25)})}
+        var out=clone(r);
+        if(REM.db&&!REM.noWrite&&lastStr!==before){
+          /* "Saxlandı" yalnız serverə yazılandan sonra (ən çox 9 san gözlə) */
+          var t=new Promise(function(r2){setTimeout(r2,9000)});
+          Promise.race([remPush(),t]).then(function(){res(out)},function(){res(out)})
+        }else res(out)}catch(e){rej(e)}},25)})})}
 function upload(blob){
   return new Promise(function(res,rej){
     var img=new Image(),u=URL.createObjectURL(blob);
@@ -1146,7 +1210,7 @@ function uploadVideo(file,onProgress){
   if(file.size>50*1048576)return Promise.reject(E("Demo üçün video ən çox 50 MB ola bilər"));
   var key="vid-"+Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(6)),function(x){return("0"+x.toString(16)).slice(-2)}).join("");
   return idbTx("readwrite",function(st){return st.put(file,key)}).then(function(){if(onProgress)onProgress(100);return{path:"idb:"+key,mb:Math.round(file.size/104857.6)/10}},function(){throw E("Bu brauzerdə video saxlamaq mümkün olmadı (yaddaş bağlıdır).")})}
-return{call:call,upload:upload,uploadVideo:uploadVideo,reset:function(){try{localStorage.removeItem(KEY);localStorage.removeItem(SKEY)}catch(e){}db=null;lastStr=null;sess={cid:0,sid:0}}};
+return{call:call,upload:upload,uploadVideo:uploadVideo,reset:function(){try{localStorage.removeItem(KEY);localStorage.removeItem(SKEY);localStorage.removeItem(TSKEY)}catch(e){}db=null;lastStr=null;REM.chunks=[];sess={cid:0,sid:0}}};
 })();
 </script>
 
@@ -2316,7 +2380,7 @@ main{padding-block:20px 80px}
 .rv{background:var(--coal);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;display:grid;gap:6px}
 .rv.hid{opacity:.6}
 .rv .acts{display:flex;gap:8px;flex-wrap:wrap}
-.demobar{display:flex;gap:10px;align-items:center;justify-content:space-between;background:#ff9a3c;color:#1a0b04;font:800 .8rem var(--body);padding:8px max(16px,env(safe-area-inset-left,0px));padding-top:calc(8px + env(safe-area-inset-top,0px))}.demobar button{background:#1a0b04;color:#ffe3c2;border:0;border-radius:6px;padding:6px 12px;font:800 .8rem var(--body);cursor:pointer}.top{top:0!important}</style><div class="shell"><div class="demobar"><span>DEMO · Admin paneli (nümunə məlumat, brauzerinizdə saxlanır)</span><button type="button" id="backToSite">← Sayta qayıt</button></div>
+.demobar{display:flex;gap:10px;align-items:center;justify-content:space-between;background:#ff9a3c;color:#1a0b04;font:800 .8rem var(--body);padding:8px max(16px,env(safe-area-inset-left,0px));padding-top:calc(8px + env(safe-area-inset-top,0px))}.demobar span{line-height:1.25;min-width:0}.demobar button{flex:none;background:#1a0b04;color:#ffe3c2;border:0;border-radius:6px;padding:6px 12px;font:800 .8rem var(--body);cursor:pointer}.top{top:0!important}</style><div class="shell"><div class="demobar"><span>DEMO · Admin paneli</span><button type="button" id="backToSite">← Sayta qayıt</button></div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="flame" viewBox="0 0 24 30"><path d="M12 1c1 5 6 8 6 15a6 6 0 0 1-12 0c0-3 1.5-5 3-6.500.3 2 1.200 3 2.200 3.200C11 9 10.200 5 12 1Z" fill="url(#fg)"/><path d="M12 15c.8 2.200 3 3.200 3 5.500a3 3 0 0 1-6 0c0-1.800 1.600-2.800 3-5.500Z" fill="#ffd9a0"/><defs><linearGradient id="fg" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff5a1f"/><stop offset="1" stop-color="#ffb347"/></linearGradient></defs></symbol>
@@ -2379,7 +2443,15 @@ var host=document.createElement("div");host.id="admHost";host.hidden=true;docume
 var sr=host.attachShadow({mode:"open"});sr.appendChild(document.getElementById("admTpl").content.cloneNode(true));
 window.__ALOV_ADMIN_ROOT=sr;
 var st=document.createElement("style");st.textContent="#admHost[hidden]{display:none!important}";document.head.appendChild(st);
-function open(){host.hidden=false;document.body.classList.add("lock");if(window.__alovDemoMem){var sp=sr.querySelector(".demobar span");if(sp)sp.textContent="DEMO · Bu pəncərədə brauzer yaddaşı bağlıdır: dəyişikliklər yalnız səhifə açıq olduqca qalır. Saxlanması üçün saytı Chrome-da açın."}if(window.__alovAdminEnter)window.__alovAdminEnter()}
+function paint(){var s=window.__alovStore&&window.__alovStore(),sp=sr.querySelector(".demobar span");if(!sp||!s)return;
+var t="DEMO · Admin paneli";
+if(s.mode==="server")t+=" · ✓ Claude serverində saxlanır"+(s.at?" ("+new Date(s.at).toLocaleTimeString("az",{hour:"2-digit",minute:"2-digit",second:"2-digit"})+")":"");
+else if(s.mode==="server-err")t+=" · ⚠ Serverə yazıla bilmədi ("+s.err+")";
+else if(s.mode==="memory")t+=" · ⚠ Bu pəncərədə yaddaş bağlıdır, dəyişikliklər yalnız səhifə açıq olduqca qalır";
+else t+=" · brauzerdə saxlanır";
+sp.textContent=t}
+window.__alovStoreHook=paint;
+function open(){host.hidden=false;document.body.classList.add("lock");paint();if(window.__alovAdminEnter)window.__alovAdminEnter()}
 function close(){host.hidden=true;document.body.classList.remove("lock");if(window.__alovRefresh)window.__alovRefresh()}
 window.__alovAdmin={open:open,close:close};
 sr.addEventListener("click",function(e){if(e.target.closest("#backToSite"))close()});
