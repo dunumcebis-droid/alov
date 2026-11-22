@@ -701,7 +701,12 @@ function now(){return Math.floor(Date.now()/1000)}
 function E(m,s){var e=new Error(m);e.status=s||400;return e}
 function cl(v,n){return typeof v==="string"?v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,"").trim().slice(0,n):""}
 function norm(p){var d=String(p||"").replace(/\D/g,"");if(d.length===10&&d[0]==="0")d="994"+d.slice(1);else if(d.length===9)d="994"+d;return d.length>=11&&d.length<=15?d:""}
-function num(v,min,max,def){if(typeof v==="string")v=v.replace(",",".").trim();var f=Math.round(parseFloat(v)*100)/100;if(!isFinite(f)||f<min||f>max||v===""||v===null)return def||0;return f}
+function moneyIn(v,min,max,label){
+  if(v===null||v===undefined||v===""||v===false)return 0;
+  if(typeof v==="string"){v=v.toLowerCase().trim().replace(/(₼|azn|manat|man\.?)\s*$/,"").trim().replace(",",".").replace(/\s+/g,"");if(v==="")return 0}
+  var f=Number(v);if(!isFinite(f)||v==="")throw E(label+" düzgün yazılmayıb. Yalnız rəqəm yazın, məsələn 2 və ya 1.5");
+  f=Math.round(f*100)/100;if(f<min||f>max)throw E(label+" "+min+" ilə "+max+" ₼ arasında olmalıdır");return f}
+function num(v,min,max,def){if(typeof v==="string")v=v.trim().replace(/\s*(₼|azn|manat|man\.?)\s*$/i,"").replace(",",".").trim();var f=Math.round(parseFloat(v)*100)/100;if(!isFinite(f)||f<min||f>max||v===""||v===null)return def||0;return f}
 function r2(x){return Math.round(x*100)/100}
 function videoOk(u){return typeof u==="string"&&(/^(uploads\/)?[A-Za-z0-9._-]{1,80}\.(mp4|webm)$/i.test(u)||/^idb:vid-[a-f0-9]{12}$/.test(u))?u:""}
 function pathOk(u){return typeof u==="string"&&(/^uploads\/[A-Za-z0-9._-]{1,80}$/.test(u)||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(u))?u:""}
@@ -991,7 +996,7 @@ s_branch_save:function(i){
   var gal=[];(Array.isArray(i.gallery)?i.gallery.slice(0,8):[]).forEach(function(g){var p=pathOk(g);if(p)gal.push(p)});
   var phone=cl(i.phone,30);if(phone&&!/^[0-9+()\s-]{5,30}$/.test(phone))throw E("Telefon nömrəsi səhvdir");
   var phone2=cl(i.phone2,30);if(phone2&&!/^[0-9+()\s-]{5,30}$/.test(phone2))throw E("İkinci telefon nömrəsi səhvdir");
-  var f={name_az:name,name_en:cl(i.name_en,60),addr_az:cl(i.addr_az,160),addr_en:cl(i.addr_en,160),phone:phone,whatsapp:String(i.whatsapp||"").replace(/\D/g,"").slice(0,15),phone2:phone2,whatsapp2:String(i.whatsapp2||"").replace(/\D/g,"").slice(0,15),maps:cl(i.maps,200),hours:hours,cover:pathOk(i.cover),gallery:gal,video:videoOk(i.video),social:cleanSocial(i.social),delivery:i.delivery?1:0,fee:num(i.fee,0,100),min_order:num(i.min_order,0,1000),email_on:(i.email_on===undefined||i.email_on)?1:0};
+  var f={name_az:name,name_en:cl(i.name_en,60),addr_az:cl(i.addr_az,160),addr_en:cl(i.addr_en,160),phone:phone,whatsapp:String(i.whatsapp||"").replace(/\D/g,"").slice(0,15),phone2:phone2,whatsapp2:String(i.whatsapp2||"").replace(/\D/g,"").slice(0,15),maps:cl(i.maps,200),hours:hours,cover:pathOk(i.cover),gallery:gal,video:videoOk(i.video),social:cleanSocial(i.social),delivery:i.delivery?1:0,fee:moneyIn(i.fee,0,100,"Çatdırılma haqqı"),min_order:moneyIn(i.min_order,0,1000,"Minimum sifariş"),email_on:(i.email_on===undefined||i.email_on)?1:0};
   if(own){f.active=i.active?1:0;f.sort=Math.round(num(i.sort,0,9999))}
   if(!b){
     var slug=cl(i.slug,30).toLowerCase();if(!/^[a-z0-9-]{2,30}$/.test(slug))throw E("Ünvan adı (slug) yalnız kiçik latın hərfləri, rəqəm və tire ola bilər");
@@ -1057,7 +1062,7 @@ s_promo_save:function(i){
   if(!/^[\p{L}\p{N}_-]{3,20}$/u.test(code))throw E("Kod 3–20 simvol olmalıdır (hərf, rəqəm, - və _). Nümunə: İLK20");
   var kind=i.kind==="fixed"?"fixed":"percent",value=num(i.value,.01,kind==="percent"?100:1000,0);
   if(value<=0)throw E(kind==="percent"?"Endirim faizi 1–100 arasında olmalıdır":"Endirim məbləği düzgün deyil");
-  var min=num(i.min_order,0,10000,0),max=Math.max(0,Math.min(1000000,parseInt(i.max_uses,10)||0)),first=i.first_only?1:0,active=("active" in i)?(i.active?1:0):1,exp=0,ed=cl(i.expires_date,10);
+  var min=moneyIn(i.min_order,0,10000,"Minimum sifariş"),max=Math.max(0,Math.min(1000000,parseInt(i.max_uses,10)||0)),first=i.first_only?1:0,active=("active" in i)?(i.active?1:0):1,exp=0,ed=cl(i.expires_date,10);
   if(ed){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(ed),dt=m?new Date(+m[1],+m[2]-1,+m[3],23,59,59):null;if(!dt||ymd(dt)!==ed)throw E("Bitmə tarixi səhvdir (nümunə: 2026-12-31)");exp=Math.floor(dt.getTime()/1000)}
   var bid;if(s.role==="owner"){bid=+i.branch_id||0;if(bid&&!branch(bid))throw E("Filial tapılmadı");bid=bid||null}else bid=s.branch_id;
   var dup=promoFind(code);if(dup&&dup.id!==id)throw E("Bu kod artıq mövcuddur",409);
@@ -2076,6 +2081,20 @@ $("#favBtn").addEventListener("click",function(){openAuth("favs")});
 window.addEventListener("hashchange",route);
 window.addEventListener("resize",setHH);
 
+/* ---------- məlumatı yenidən yüklə (admin dəyişikliyi sonra saytda dərhal görünsün) ---------- */
+var lastPub=Date.now();
+function refreshPublic(){
+  return API.call("public").then(function(j){
+    lastPub=Date.now();var curId=S.cur&&S.cur.id,onBranch=!!S.cur&&!$("#branch").hidden;
+    S.settings=j.settings||{};S.branches=j.branches||[];
+    if(curId)S.cur=bById(curId)||null;
+    applyI18n();renderStatic();renderBranches();
+    if(onBranch){if(S.cur)renderBranch();else showBranches()}
+    renderCartUI();refreshFavUI()}).catch(function(){})}
+window.__alovRefresh=refreshPublic;
+window.addEventListener("pageshow",function(e){if(e.persisted&&S.loaded)refreshPublic()});
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"&&S.loaded&&Date.now()-lastPub>180000&&$("#lb").hidden&&!anyModal()&&$("#drawer").hidden)refreshPublic()});
+
 /* ---------- başlanğıc ---------- */
 loadCart();S.favs=localFavs();applyI18n();renderStatic();setHH();refreshFavUI();
 if(window.ResizeObserver){try{new ResizeObserver(setHH).observe($("header"))}catch(e){}}
@@ -2347,7 +2366,7 @@ var sr=host.attachShadow({mode:"open"});sr.appendChild(document.getElementById("
 window.__ALOV_ADMIN_ROOT=sr;
 var st=document.createElement("style");st.textContent="#admHost[hidden]{display:none!important}";document.head.appendChild(st);
 function open(){host.hidden=false;document.body.classList.add("lock");if(window.__alovAdminEnter)window.__alovAdminEnter()}
-function close(){host.hidden=true;document.body.classList.remove("lock")}
+function close(){host.hidden=true;document.body.classList.remove("lock");if(window.__alovRefresh)window.__alovRefresh()}
 window.__alovAdmin={open:open,close:close};
 sr.addEventListener("click",function(e){if(e.target.closest("#backToSite"))close()});
 })();
@@ -2373,6 +2392,9 @@ function fmtTime(ts){var d=new Date(ts*1000),n=new Date();var hm=pad(d.getHours(
 function ago(ts){var s=Math.max(0,Math.floor(Date.now()/1000)-ts);if(s<60)return "indicə";if(s<3600)return Math.floor(s/60)+" dəq əvvəl";if(s<86400)return Math.floor(s/3600)+" saat əvvəl";return Math.floor(s/86400)+" gün əvvəl"}
 function toast(m,bad){var el=$("#toast");el.textContent=m;el.className="toast"+(bad?" bad":"");el.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(function(){el.hidden=true},3400)}
 function nrm(s){return String(s==null?"":s).replace(/İ/g,"I").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/ə/g,"e").replace(/ı/g,"i")}
+function scrollY0(){return ROOT.host?ROOT.host.scrollTop:window.pageYOffset}
+function scrollTo0(y){(ROOT.host||window).scrollTo(0,y)}
+function markSaved(sel){var sp=$(sel+" .savebar .muted");if(!sp)return;var old=sp.textContent;sp.textContent="✓ Saxlandı. Dəyişikliklər saytda görünür.";sp.style.color="var(--leaf)";sp.style.fontWeight="800";setTimeout(function(){if(sp.isConnected){sp.textContent=old;sp.style.color="";sp.style.fontWeight=""}},6000)}
 function fail(e){if(e&&e.status===401&&S.staff){leave(true);return}toast(e&&e.message?e.message:"Əlaqə xətası",true)}
 
 var ROLE={owner:"Baş Direktor",manager:"Filial meneceri",staff:"İşçi"};
@@ -2434,7 +2456,13 @@ function renderTabs(){
   if(!S.staff)return;
   var nn=S.orders.filter(function(o){return o.status==="new"}).length;
   $("#tabs").innerHTML=tabList().map(function(t){return '<button role="tab" data-tab="'+t[0]+'" aria-selected="'+(S.tab===t[0])+'">'+t[1]+(t[0]==="orders"&&nn?'<span class="nb">'+nn+'</span>':'')+'</button>'}).join("")}
+function markDirtyForm(kind){
+  S.dirtyForm=kind;var sp=$((kind==="branch"?"#brForm":"#siteForm")+" .savebar .muted");
+  if(sp&&!sp.getAttribute("data-dirty")){sp.setAttribute("data-dirty","1");sp.textContent="● Saxlanmamış dəyişiklik var. \"Yadda saxla\" basın.";sp.style.color="var(--flame)";sp.style.fontWeight="800"}}
+function formTab(){return S.dirtyForm==="branch"?"branch":S.dirtyForm==="site"?"site":""}
 function go(tab){
+  if(S.dirtyForm&&S.tab===formTab()){if(tab===S.tab)return;confirmBox("Saxlanmamış dəyişikliklər var","Bu bölmədə yadda saxlanmamış dəyişikliklər var (şəkil, video və ya yazı). Çıxsanız itəcək.","Çıx","Qal",function(){S.dirtyForm=null;go(tab)});return}
+  S.dirtyForm=null;
   if(S.dirty&&S.tab==="menu"&&tab!=="menu"){confirmBox("Saxlanmamış dəyişikliklər var","Menyuda yadda saxlanmamış dəyişikliklər var. Çıxsanız itəcək.","Çıx","Qal",function(){S.dirty=false;S.menu=null;go(tab)});return}
   S.tab=tab;renderTabs();render()}
 function render(){
@@ -2545,9 +2573,9 @@ function syncMenu(){
     it.variants=$$(".vrow",card).map(function(r,j){var old=it.variants[j]||{};return{id:old.id,az:$("[data-vf=az]",r).value,en:$("[data-vf=en]",r).value,price:$("[data-vf=price]",r).value}})})}
 function markDirty(){S.dirty=true;var l=$("#dirtyLbl");l&&(l.hidden=false)}
 function saveMenu(){
-  syncMenu();var b=curBranch();
+  syncMenu();var b=curBranch(),my=scrollY0();
   API.call("s_menu_save",{branch_id:b.id,items:S.menu}).then(function(j){
-    S.menu=j.menu;b.menu=JSON.parse(JSON.stringify(j.menu));S.dirty=false;toast("Menyu saxlandı");renderMenu()}).catch(fail)}
+    S.menu=j.menu;b.menu=JSON.parse(JSON.stringify(j.menu));S.dirty=false;renderMenu();scrollTo0(my);toast("✓ Menyu saxlandı")}).catch(fail)}
 
 /* ---------- FİLİAL ---------- */
 function renderBranch(){
@@ -2590,7 +2618,7 @@ function uploadVid(file){
   if(file.size>lim*1048576){toast("Video çox böyükdür ("+(file.size/1048576).toFixed(1)+" MB). Ən çox "+lim+" MB. Videonu sıxın və ya qısaldın.",true);if(st)st.textContent="Video çox böyükdür: "+(file.size/1048576).toFixed(1)+" MB (limit "+lim+" MB).";return}
   var lbl=$("#vidLbl");if(lbl)lbl.style.opacity=".5";
   if(st)st.textContent="Yüklənir… 0%";
-  API.uploadVideo(file,function(p){var e=$("#vidSt");if(e)e.textContent="Yüklənir… "+p+"%"}).then(function(j){S.brForm.video=j.path;drawVideo();var e=$("#vidSt");if(e)e.textContent="Yükləndi ("+j.mb+" MB). Saytda görünməsi üçün \"Yadda saxla\" basın.";toast("Video yükləndi")}).catch(function(e){var l=$("#vidLbl");if(l)l.style.opacity="";var t=$("#vidSt");if(t)t.textContent=(e&&e.message)||"Video yüklənmədi";fail(e)})}
+  API.uploadVideo(file,function(p){var e=$("#vidSt");if(e)e.textContent="Yüklənir… "+p+"%"}).then(function(j){S.brForm.video=j.path;drawVideo();markDirtyForm("branch");var e=$("#vidSt");if(e)e.textContent="Yükləndi ("+j.mb+" MB). Saytda görünməsi üçün \"Yadda saxla\" basın.";toast("Video yükləndi")}).catch(function(e){var l=$("#vidLbl");if(l)l.style.opacity="";var t=$("#vidSt");if(t)t.textContent=(e&&e.message)||"Video yüklənmədi";fail(e)})}
 /* koordinat çıxarma: yapışdırılan uzun Google linkindən yalnız koordinat saxlanır; qısa link və ünvan olduğu kimi qalır */
 function mapCoord(s){
   s=String(s||"").trim();try{s=decodeURIComponent(s)}catch(e){}
@@ -2610,7 +2638,12 @@ function saveBranch(e){
   var hours=$$("#hrs .row").map(function(r){return{az:$("[data-h=az]",r).value,en:$("[data-h=en]",r).value,t:$("[data-h=t]",r).value}});
   var d={id:b.id,name_az:g("name_az"),name_en:g("name_en"),addr_az:g("addr_az"),addr_en:g("addr_en"),phone:g("phone"),whatsapp:g("whatsapp"),phone2:g("phone2"),whatsapp2:g("whatsapp2"),maps:normMaps(g("maps")),delivery:form.elements.delivery.checked?1:0,email_on:form.elements.email_on.checked?1:0,fee:g("fee"),min_order:g("min_order"),hours:hours,social:$$("#bsocs .row").map(function(r){return{n:$("[data-s=n]",r).value,h:$("[data-s=h]",r).value,u:$("[data-s=u]",r).value}}),cover:S.brForm.cover,gallery:S.brForm.gallery,video:S.brForm.video||""};
   if(S.staff.role==="owner"){d.active=form.elements.active.checked?1:0;d.sort=g("sort")}
-  API.call("s_branch_save",d).then(function(){return API.call("s_data")}).then(function(j){S.data=j;S.menu=null;toast("Filial saxlandı");renderBranch()}).catch(function(x){$("#brErr").textContent=x.message||"Xəta"})}
+  var btn=$("#brForm button[type=submit]");if(btn.disabled)return;
+  btn.disabled=true;btn.textContent="Saxlanır…";$("#brErr").textContent="";var y=scrollY0();
+  API.call("s_branch_save",d).then(function(){return API.call("s_data")}).then(function(j){S.data=j;S.menu=null;S.dirtyForm=null;renderBranch();scrollTo0(y);markSaved("#brForm");toast("✓ Filial saxlandı")}).catch(function(x){
+    var l=$("#brForm button[type=submit]");if(l){l.disabled=false;l.textContent="Yadda saxla"}
+    if(x&&x.status===401){fail(x);return}
+    var m=(x&&x.message)||"Saxlanmadı. Yenidən cəhd edin.";var er=$("#brErr");if(er){er.textContent="⚠ "+m;er.scrollIntoView&&er.scrollIntoView({block:"center",behavior:"smooth"})}toast(m,true)})}
 
 /* ---------- telefona bildiriş (Web Push) ---------- */
 var SWURL="sw.js";
@@ -2844,7 +2877,8 @@ function renderSite(){
    +'<div class="err" id="siteErr"></div><div class="savebar"><span class="muted sm">Dəyişikliklər dərhal saytda görünür.</span><button class="btn" type="submit">Yadda saxla</button></div></form>'}
 function saveSite(e){
   e.preventDefault();var f=$("#siteForm"),g=function(n){return f.elements[n].value};
-  API.call("s_settings_save",{brand:g("brand"),tagline_az:g("tagline_az"),tagline_en:g("tagline_en"),about_az:g("about_az"),about_en:g("about_en"),banner_az:g("banner_az"),banner_en:g("banner_en"),privacy_az:g("privacy_az"),privacy_en:g("privacy_en"),terms_az:g("terms_az"),terms_en:g("terms_en"),require_login:f.elements.require_login.checked}).then(function(j){S.data.settings=j.settings;toast("Saxlandı");renderSite()}).catch(function(x){$("#siteErr").textContent=x.message||"Xəta"})}
+  var sbtn=$("#siteForm button[type=submit]");if(sbtn.disabled)return;sbtn.disabled=true;sbtn.textContent="Saxlanır…";$("#siteErr").textContent="";var sy=scrollY0();
+  API.call("s_settings_save",{brand:g("brand"),tagline_az:g("tagline_az"),tagline_en:g("tagline_en"),about_az:g("about_az"),about_en:g("about_en"),banner_az:g("banner_az"),banner_en:g("banner_en"),privacy_az:g("privacy_az"),privacy_en:g("privacy_en"),terms_az:g("terms_az"),terms_en:g("terms_en"),require_login:f.elements.require_login.checked}).then(function(j){S.data.settings=j.settings;S.dirtyForm=null;renderSite();scrollTo0(sy);markSaved("#siteForm");toast("✓ Saxlandı")}).catch(function(x){var l=$("#siteForm button[type=submit]");if(l){l.disabled=false;l.textContent="Yadda saxla"}if(x&&x.status===401){fail(x);return}var m=(x&&x.message)||"Saxlanmadı. Yenidən cəhd edin.";var er=$("#siteErr");if(er)er.textContent="⚠ "+m;toast(m,true)})}
 
 /* ---------- PAROL ---------- */
 function renderPw(){
@@ -2893,9 +2927,9 @@ ROOT.addEventListener("click",function(e){
    case"copymenu":var from=+$("#copyFrom").value,fb=branchById(from),cb=curBranch();confirmBox("Menyunu kopyala",cb.name_az+" filialının indiki menyusu silinib "+fb.name_az+" menyusu ilə əvəz olunacaq.","Kopyala","Geri",function(){closeModal();API.call("s_menu_copy",{from:from,to:cb.id}).then(function(){return API.call("s_data")}).then(function(j){S.data=j;S.menu=null;toast("Menyu kopyalandı");renderMenu()}).catch(fail)});break;
    case"maptest":{var mi=$("#brForm").elements.maps;var mu=mapTestUrl(mi?mi.value:"");try{window.open(mu,"_blank","noopener")}catch(e){}break}
    case"addhour":$("#hrs").insertAdjacentHTML("beforeend",hourRow({az:"",en:"",t:""}));break;
-   case"rmcover":S.brForm.cover="";drawImgs("cover");break;
-   case"rmvid":S.brForm.video="";drawVideo();break;
-   case"rmgal":S.brForm.gallery.splice(i,1);drawImgs("gal");break;
+   case"rmcover":S.brForm.cover="";drawImgs("cover");markDirtyForm("branch");break;
+   case"rmvid":S.brForm.video="";drawVideo();markDirtyForm("branch");break;
+   case"rmgal":S.brForm.gallery.splice(i,1);drawImgs("gal");markDirtyForm("branch");break;
    case"pushon":pushOn();break;
    case"pushoff":pushOff();break;
    case"pushtest":pushTest();break;
@@ -2909,18 +2943,18 @@ ROOT.addEventListener("click",function(e){
    case"addbsoc":$("#bsocs").insertAdjacentHTML("beforeend",socRow({n:"",h:"",u:""}));break;
   }
 });
-ROOT.addEventListener("input",function(e){if(S.tab==="menu"&&e.target.closest(".mi"))markDirty();if(e.target.id==="stockQ")drawStockList()});
+ROOT.addEventListener("input",function(e){if(S.tab==="menu"&&e.target.closest(".mi"))markDirty();else if(e.target.closest&&e.target.closest("#brForm"))markDirtyForm("branch");else if(e.target.closest&&e.target.closest("#siteForm"))markDirtyForm("site");if(e.target.id==="stockQ")drawStockList()});
 ROOT.addEventListener("change",function(e){
   var t=e.target;
   if(t.id==="ordBranch"){S.ordBranch=+t.value;loadOrders(false).then(renderOrders).catch(fail);return}
-  if(t.id==="menuBranch"||t.id==="brSel"){var nid=+t.value,tab=S.tab;var doIt=function(){S.sel=nid;S.menu=null;S.dirty=false;render()};if(S.dirty&&tab==="menu"){t.value=S.sel;confirmBox("Saxlanmamış dəyişikliklər var","Menyuda yadda saxlanmamış dəyişikliklər var. Filialı dəyişsəniz itəcək.","Davam et","Qal",function(){closeModal();doIt()})}else doIt();return}
+  if(t.id==="menuBranch"||t.id==="brSel"){var nid=+t.value,tab=S.tab;var doIt=function(){S.sel=nid;S.menu=null;S.dirty=false;render()};if(S.dirty&&tab==="menu"){t.value=S.sel;confirmBox("Saxlanmamış dəyişikliklər var","Menyuda yadda saxlanmamış dəyişikliklər var. Filialı dəyişsəniz itəcək.","Davam et","Qal",function(){closeModal();doIt()})}else if(S.dirtyForm&&tab===formTab()){t.value=S.sel;confirmBox("Saxlanmamış dəyişikliklər var","Bu filialda yadda saxlanmamış dəyişikliklər var. Filialı dəyişsəniz itəcək.","Davam et","Qal",function(){closeModal();S.dirtyForm=null;doIt()})}else doIt();return}
   if(t.id==="stockBranch"){S.stockBid=+t.value;renderStock();return}
   if(t.id==="statBranch"){S.statBranch=+t.value;renderStats();return}
   if(t.id==="adRole"){toggleBr();return}
   if(t.getAttribute("data-up")!==null&&t.files&&t.files[0]){var i=+t.getAttribute("data-up");syncMenu();toast("Şəkil yüklənir…");uploadImg(t.files[0],900).then(function(p){S.menu[i].img=p;markDirty();renderMenu();toast("Şəkil yükləndi")}).catch(fail);return}
   if(t.id==="vidUp"){var vf=t.files&&t.files[0];t.value="";uploadVid(vf);return}
-  if(t.id==="coverUp"&&t.files[0]){toast("Şəkil yüklənir…");uploadImg(t.files[0],1600).then(function(p){S.brForm.cover=p;drawImgs("cover");toast("Şəkil yükləndi")}).catch(fail);return}
-  if(t.id==="galUp"&&t.files.length){var files=Array.prototype.slice.call(t.files,0,8-S.brForm.gallery.length);toast("Şəkillər yüklənir…");files.reduce(function(pr,f){return pr.then(function(){return uploadImg(f,1600).then(function(p){S.brForm.gallery.push(p)})})},Promise.resolve()).then(function(){drawImgs("gal");toast("Yükləndi")}).catch(fail)}});
+  if(t.id==="coverUp"&&t.files[0]){toast("Şəkil yüklənir…");uploadImg(t.files[0],1600).then(function(p){S.brForm.cover=p;drawImgs("cover");markDirtyForm("branch");toast("Şəkil yükləndi")}).catch(fail);return}
+  if(t.id==="galUp"&&t.files.length){var files=Array.prototype.slice.call(t.files,0,8-S.brForm.gallery.length);toast("Şəkillər yüklənir…");files.reduce(function(pr,f){return pr.then(function(){return uploadImg(f,1600).then(function(p){S.brForm.gallery.push(p)})})},Promise.resolve()).then(function(){drawImgs("gal");markDirtyForm("branch");toast("Yükləndi")}).catch(fail)}});
 ROOT.addEventListener("submit",function(e){
   var id=e.target.id;e.preventDefault();
   if(id==="brForm")saveBranch(e);
