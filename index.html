@@ -280,6 +280,15 @@ footer{padding-block:28px 40px;border-top:1px solid var(--line);color:var(--mute
 /* cart bar + drawer + modals */
 .cartbar{position:fixed;left:0;right:0;bottom:0;z-index:45;padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));background:rgba(18,13,11,.97);border-top:1px solid var(--line)}
 .cartbar .btn{width:100%;justify-content:space-between;max-width:560px;margin:0 auto;display:flex}
+.admpill{position:fixed;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:46;display:flex;align-items:center;gap:10px;max-width:calc(100% - 24px);padding:9px 14px 9px 12px;border-radius:999px;border:0;background:#ff9a3c;color:#1a0b04;font:800 .86rem var(--body);box-shadow:0 10px 28px rgba(0,0,0,.5);cursor:pointer;text-align:left}
+.admpill .ic{font-size:1.15rem;line-height:1}
+.admpill .tx{display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.admpill small{font-weight:700;opacity:.78;font-size:.72rem}
+.admpill .bd{min-width:24px;height:24px;border-radius:12px;background:#1a0b04;color:#ff9a3c;display:grid;place-items:center;font-size:.8rem;padding:0 7px}
+.admpill.hot{animation:admp 1.6s ease-in-out infinite}
+@keyframes admp{0%,100%{box-shadow:0 10px 28px rgba(0,0,0,.5),0 0 0 0 rgba(255,154,60,.75)}50%{box-shadow:0 10px 28px rgba(0,0,0,.5),0 0 0 12px rgba(255,154,60,0)}}
+#cartBar:not([hidden])~#admPill{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+@media (prefers-reduced-motion:reduce){.admpill.hot{animation:none}}
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:70}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);z-index:71;background:var(--coal);border-left:1px solid var(--line);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
 .dh{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px max(18px,env(safe-area-inset-right,0px)) 12px 18px;border-bottom:1px solid var(--line)}
@@ -681,6 +690,7 @@ legend{font-weight:800;padding:0;margin-bottom:8px;display:flex;align-items:cent
 </footer>
 
 <div class="cartbar" id="cartBar" hidden><button class="btn" id="cartBarBtn" type="button"><span id="cbL"></span><span id="cbR"></span></button></div>
+<button class="admpill" id="admPill" type="button" hidden aria-label="Admin panelinə qayıt"><span class="ic" aria-hidden="true">🛠</span><span class="tx"><b>Admin panelinə qayıt</b><small id="admSub"></small></span><span class="bd" id="admBd" hidden></span></button>
 
 <div class="lb" id="lb" role="dialog" aria-modal="true" hidden><button class="lbb lbx" type="button" data-act="lbclose">×</button><button class="lbb lbp" type="button" data-act="lbprev">‹</button><div class="lbst" id="lbStage"></div><button class="lbb lbnx" type="button" data-act="lbnext">›</button><div class="lbct" id="lbCt" aria-live="polite"></div></div>
 
@@ -926,7 +936,7 @@ function ymd(d){function p(n){return n<10?"0"+n:""+n}return d.getFullYear()+"-"+
 
 var H={
 public:function(){return{settings:db.settings,branches:db.branches.filter(function(b){return b.active}).sort(function(a,b){return a.sort-b.sort}).map(function(b){return pubBranch(b)})}},
-me:function(){var c=customer(),r=mePack(c);r.csrf="demo";return r},
+me:function(){var c=customer(),r=mePack(c);r.csrf="demo";r.adm=!!staff();return r},
 pw_forgot:function(i){
   var kind=i.kind==="staff"?"staff":(i.kind==="customer"?"customer":"any"),email=cl(i.email,80).toLowerCase();
   if(kind==="customer"?!GM.test(email):!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw E("Gmail ünvanını düzgün yazın (nümunə: ad@gmail.com)");
@@ -2013,8 +2023,51 @@ function enterAdmin(){
   hideModal("#mAuth");hideModal("#mWelcome");
   if(window.__alovAdmin){window.__alovAdmin.open();return}
   location.href="admin.html"}
+/* ---------- Admin sessiyası saytda da açıq qalır ----------
+   "Sayta qayıt" admini çıxarmır: sessiya saxlanır, yuxarıdakı düymə ilə parolsuz panelə qayıdılır.
+   Sayt açıq olan müddətdə yeni sifariş gələrsə: bildiriş + səs + sayğac. */
+var ADM={on:false,timer:0,known:0,base:false,n:0,ac:null,t0:""};
+function admSet(on){
+  on=!!on;
+  if(on===ADM.on){if(on)admPoll();return}
+  ADM.on=on;clearInterval(ADM.timer);ADM.base=false;ADM.known=0;ADM.n=0;
+  if(on){admPoll();ADM.timer=setInterval(admPoll,7000)}
+  admPaint()}
+function admPaint(){
+  var el=$("#admPill");if(!el)return;el.hidden=!ADM.on;
+  var base=document.title.replace(/^\(\d+\)\s*/,"");
+  if(!ADM.on){document.title=base;return}
+  var n=ADM.n,b=$("#admBd");
+  b.hidden=!n;b.textContent=n>99?"99+":String(n);
+  $("#admSub").textContent=n?(n===1?"1 yeni sifariş gözləyir":n+" yeni sifariş gözləyir"):"Giriş açıqdır · parol lazım deyil";
+  el.classList.toggle("hot",!!n);
+  document.title=(n?"("+n+") ":"")+base}
+function admBeep(){
+  if(lsGet("alov_sound")!=="1")return;
+  try{
+    if(!ADM.ac)ADM.ac=new (window.AudioContext||window.webkitAudioContext)();
+    var AC=ADM.ac;if(AC.state==="suspended")AC.resume();
+    [0,.28,.56].forEach(function(d,i){var o=AC.createOscillator(),g=AC.createGain();o.type="sine";o.frequency.value=i===1?1175:880;g.gain.setValueAtTime(0,AC.currentTime+d);g.gain.linearRampToValueAtTime(.25,AC.currentTime+d+.02);g.gain.linearRampToValueAtTime(0,AC.currentTime+d+.22);o.connect(g);g.connect(AC.destination);o.start(AC.currentTime+d);o.stop(AC.currentTime+d+.25)})}catch(e){}}
+function admOpen(){return !!(window.__alovAdmin&&window.__alovAdmin.isOpen&&window.__alovAdmin.isOpen())}
+function admPoll(){
+  if(!ADM.on)return;
+  API.call("s_orders").then(function(j){
+    if(!ADM.on)return;
+    var L=j.orders||[],max=0,n=0;
+    L.forEach(function(o){if(o.id>max)max=o.id;if(o.status==="new")n++});
+    if(ADM.base){
+      var fresh=L.filter(function(o){return o.id>ADM.known&&o.status==="new"});
+      if(fresh.length&&!admOpen()){
+        toast(fresh.length===1?"Yeni sifariş "+fresh[0].code+" · "+money(fresh[0].total):fresh.length+" yeni sifariş gəldi");
+        admBeep()}}
+    ADM.known=Math.max(ADM.known,max);ADM.base=true;ADM.n=n;admPaint()
+  }).catch(function(e){if(e&&e.status===401)admSet(false)})}
+window.__alovAdmSet=admSet;
+document.addEventListener("click",function(){
+  if(ADM.on&&!ADM.ac&&lsGet("alov_sound")==="1"){try{ADM.ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}},true);
+$("#admPill").addEventListener("click",enterAdmin);
 function afterLogin(j){
-  if(j&&j.role==="staff"){enterAdmin();return}
+  if(j&&j.role==="staff"){admSet(true);enterAdmin();return}
   applyMe(j);var loc=localFavs();
   if(loc.length)API.call("fav_sync",{items:loc}).then(function(r){S.favs=r.favs;lsSet("alov_favs","[]");refreshFavUI()}).catch(function(){});
   lsSet("alov_seen","1");S.accTab="orders";hideModal("#mAuth");hideModal("#mWelcome");renderStatic();refreshFavUI();if(S.cur)renderBranch();
@@ -2074,7 +2127,7 @@ function track(e){
 /* ---------- marşrut ---------- */
 function route(){
   var h=decodeURIComponent((location.hash||"").slice(1)),m=/^filial-([a-z0-9-]+)$/.exec(h);
-  if(h==="giris"||h==="admin"){try{history.replaceState(null,"",location.pathname+location.search)}catch(x){}showHome();hideModal("#mWelcome");if(!S.customer)openAuth("login");return}
+  if(h==="giris"||h==="admin"){try{history.replaceState(null,"",location.pathname+location.search)}catch(x){}showHome();hideModal("#mWelcome");if(!S.customer){if(ADM.on)enterAdmin();else openAuth("login")}return}
   if(m){var b=S.branches.filter(function(x){return x.slug===m[1]})[0];if(b){showBranch(b);return}showBranches();return}
   if(h==="filiallar"){showBranches();return}
   if(h==="mexfilik"){showLegal("privacy");return}
@@ -2168,7 +2221,7 @@ document.addEventListener("keydown",function(e){
 $("#cartBtn").addEventListener("click",openDrawer);
 $("#cartBarBtn").addEventListener("click",openDrawer);
 $("#drClose").addEventListener("click",closeDrawer);
-$("#accBtn").addEventListener("click",function(){openAuth(S.customer?"acc":"login")});
+$("#accBtn").addEventListener("click",function(){if(!S.customer&&ADM.on){enterAdmin();return}openAuth(S.customer?"acc":"login")});
 $("#favBtn").addEventListener("click",function(){openAuth("favs")});
 window.addEventListener("hashchange",route);
 window.addEventListener("resize",setHH);
@@ -2192,7 +2245,7 @@ loadCart();S.favs=localFavs();applyI18n();renderStatic();setHH();refreshFavUI();
 if(window.ResizeObserver){try{new ResizeObserver(setHH).observe($("header"))}catch(e){}}
 var hash0=(location.hash||"").length;
 Promise.all([API.call("public"),API.call("me")]).then(function(r){
-  S.settings=r[0].settings||{};S.branches=r[0].branches||[];applyMe(r[1]);S.loaded=true;
+  S.settings=r[0].settings||{};S.branches=r[0].branches||[];applyMe(r[1]);S.loaded=true;if(r[1]&&r[1].adm)admSet(true);
   applyI18n();renderStatic();renderBranches();route();renderCartUI();refreshFavUI();setHH();
   if(!lsGet("alov_seen")&&!hash0)openWelcome();
 }).catch(function(){S.loaded=true;$("#bgrid").innerHTML='<div class="skel">'+t("loadfail")+'</div>';renderTile()});
@@ -2440,7 +2493,7 @@ main{padding-block:20px 80px}
   <header class="top"><div class="wrap">
     <div class="topin">
       <div class="who"><span class="brand"><svg viewBox="0 0 24 30" aria-hidden="true"><use href="#flame"/></svg>Alove</span><span class="role" id="roleLbl"></span><span class="muted sm" id="whoLbl"></span></div>
-      <div class="who"><button class="btn ghost s" id="soundBtn" type="button">🔔 Səs: söndürülüb</button><button class="btn ghost s" id="notifBtn" type="button" hidden>Ekran bildirişi</button><button class="btn ghost s" id="outBtn" type="button">Çıxış</button></div>
+      <div class="who"><a class="btn ghost s" id="siteLink" href="./" target="_blank" title="Saytı yeni sekmədə aç: admin paneli dayanmır, sifarişlər gəlməyə davam edir">↗ Sayt</a><button class="btn ghost s" id="soundBtn" type="button">🔔 Səs: söndürülüb</button><button class="btn ghost s" id="notifBtn" type="button" hidden>Ekran bildirişi</button><button class="btn ghost s" id="outBtn" type="button">Çıxış</button></div>
     </div>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Bölmələr"></nav>
   </div></header>
@@ -2467,7 +2520,7 @@ sp.textContent=t}
 window.__alovStoreHook=paint;
 function open(){host.hidden=false;document.body.classList.add("lock");paint();if(window.__alovAdminEnter)window.__alovAdminEnter()}
 function close(){host.hidden=true;document.body.classList.remove("lock");if(window.__alovRefresh)window.__alovRefresh()}
-window.__alovAdmin={open:open,close:close};
+window.__alovAdmin={open:open,close:close,isOpen:function(){return !host.hidden}};
 sr.addEventListener("click",function(e){if(e.target.closest("#backToSite"))close()});
 })();
 </script>
@@ -2507,6 +2560,7 @@ var AC=null;
 function initAudio(){if(AC)return;try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){AC=null}}
 function beep(){
   if(!S.sound||!AC)return;
+  if(window.ALOV_DEMO&&ROOT.host&&ROOT.host.hidden)return; /* admin saytdadır: səsi və bildirişi sayt özü verir */
   try{if(AC.state==="suspended")AC.resume();
     [0,.28,.56].forEach(function(d,i){var o=AC.createOscillator(),g=AC.createGain();o.type="sine";o.frequency.value=i===1?1175:880;g.gain.setValueAtTime(0,AC.currentTime+d);g.gain.linearRampToValueAtTime(.25,AC.currentTime+d+.02);g.gain.linearRampToValueAtTime(0,AC.currentTime+d+.22);o.connect(g);g.connect(AC.destination);o.start(AC.currentTime+d);o.stop(AC.currentTime+d+.25)})}catch(e){}}
 function soundLabel(){$("#soundBtn").textContent=S.sound?"🔔 Səs: açıqdır":"🔔 Səs: söndürülüb"}
@@ -2528,7 +2582,7 @@ function showApp(){
 function resetState(){clearInterval(S.timer);S.staff=null;S.data=null;S.orders=[];S.customers=null;S.menu=null;S.stats=null;S.promos=null;S.reviews=null;S.stock=null;S.tab="orders"}
 function leave(toLogin){
   resetState();$("#app").hidden=true;$("#boot").hidden=false;
-  if(window.ALOV_DEMO&&window.__alovAdmin){window.__alovAdmin.close();if(toLogin)location.hash="#giris";return}
+  if(window.ALOV_DEMO&&window.__alovAdmin){if(window.__alovAdmSet)window.__alovAdmSet(false);window.__alovAdmin.close();if(toLogin)location.hash="#giris";return}
   if(ROOT===document)document.title="Alove";
   location.replace(toLogin?"./#giris":"./")}
 function showLogin(){leave(true)}
@@ -3079,8 +3133,11 @@ $("#outBtn").addEventListener("click",function(){pushDetach().then(function(){re
 
 /* ---------- başlanğıc ---------- */
 function enter(){
+  if(S.staff){ /* "Sayta qayıt"-dan sonra: sessiya, sekmə və yazılanlar olduğu kimi qalır */
+    $("#boot").hidden=true;$("#app").hidden=false;
+    return loadOrders(false).then(function(){if(S.tab==="orders")renderOrders()}).catch(fail)}
   return API.call("staff_me").then(function(j){S.push=j.push||S.push;if(j.staff){S.staff=j.staff;showApp()}else showLogin()}).catch(function(x){if(x&&x.status===401)showLogin();else{var b=$("#boot");b.hidden=false;b.textContent="Server cavab vermir. Səhifəni yeniləyin."}})}
-if(window.ALOV_DEMO)window.__alovAdminEnter=enter;
+if(window.ALOV_DEMO){window.__alovAdminEnter=enter;var sl=$("#siteLink");if(sl)sl.hidden=true}
 else enter();
 })();
 </script>
